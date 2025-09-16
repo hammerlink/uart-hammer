@@ -26,12 +26,7 @@ pub fn run(opts: TxOpts) -> Result<()> {
             eprintln!("[tx] {}", line);
         }
         out.extend_from_slice(line.as_bytes());
-        out.extend_from_slice(
-            b"
-
-
-",
-        );
+        out.extend_from_slice(b"\r\n");
         port.write_all(&out).context("serial write")?;
 
         if let Some(sleep) = pacing.sleep_for(out.len(), opts.bpb, opts.ser.baud) {

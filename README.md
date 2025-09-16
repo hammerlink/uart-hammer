@@ -7,11 +7,10 @@ Generate frames at line-rate, verify checksums and sequence numbers, and measure
 
 ## Features
 
-- **TX mode** — blast frames with configurable payload size and pacing (`max`, fixed gap, or auto-paced by baud).
-- **RX mode** — receive and validate frames, track sequence gaps, checksum errors, and throughput.
-- **Cross-compile ready** — runs on x86 hosts and RISC-V SoCs (or any Linux with `/dev/ttyS*`).
-- **Stats & logging** — per-second stats with optional debug output for each bad/lost frame.
-- **Open source** — extend it with your own frame formats or logging backends.
+- **TX mode** blast frames with configurable payload size and pacing (`max`, fixed gap, or auto-paced by baud).
+- **RX mode** receive and validate frames, track sequence gaps, checksum errors, and throughput.
+- **Cross-compile ready** runs on x86 hosts and RISC-V SoCs (or any Linux with `/dev/ttyS*`).
+- **Stats & logging** per-second stats with optional debug output for each bad/lost frame.
 
 ---
 
@@ -22,3 +21,4 @@ Generate frames at line-rate, verify checksums and sequence numbers, and measure
 git clone https://github.com/hammerlink/uart-hammer.git
 cd uart-hammer
 cargo build --release
+```

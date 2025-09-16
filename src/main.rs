@@ -7,6 +7,7 @@ mod tx;
 mod port;
 mod frame;
 mod stats;
+mod auto;
 
 fn main() -> Result<()> {
     let args = cli::Cli::parse();

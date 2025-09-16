@@ -68,7 +68,7 @@ pub struct TxOpts {
     pub debug: bool,
 }
 
-#[derive(clap::Args, Clone)]
+#[derive(clap::Args, Debug, Clone)]
 pub struct AutoArgs {
     #[arg(long)] pub dev: String,
     #[arg(long)] pub master: bool,

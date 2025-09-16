@@ -13,5 +13,6 @@ fn main() -> Result<()> {
     match args.cmd {
         cli::Cmd::Rx(opts) => rx::run(opts),
         cli::Cmd::Tx(opts) => tx::run(opts),
+        cli::Cmd::Auto(_opts) => std::result::Result::Err(anyhow::anyhow!("auto mode not implemented yet")),
     }
 }

@@ -6,5 +6,9 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.99"
 clap = { version = "4.5.47", features = ["derive"] }
-serialport = "4.7.3"
+serialport = { version = "4.7.3", default-features = false }
 thiserror = "2.0.16"
+
+# [target.riscv64gc-unknown-linux-musl]
+# linker = "riscv64-linux-musl-gcc"   # adjust if your tool has a different name
+# rustflags = ["-C", "target-feature=+crt-static"]

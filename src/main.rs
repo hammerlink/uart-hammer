@@ -46,7 +46,7 @@ enum Cmd {
 }
 
 fn open_port(dev: &str, baud: u32, rtscts: bool) -> Result<Box<dyn SerialPort>> {
-    let mut b = serialport::new(dev, baud)
+    let b = serialport::new(dev, baud)
         .timeout(Duration::from_millis(100))
         .data_bits(serialport::DataBits::Eight)
         .parity(serialport::Parity::None)
@@ -170,7 +170,7 @@ fn tx(dev: String, baud: u32, len: usize, gap: String, bpb: u32, util: f64, rtsc
     } else { None };
 
     loop {
-        let line = build_frame(seq);
+        let line = build_frame(seq, len);
         if debug { eprintln!("[tx] {}", line); }
         // write once per line (includes CRLF)
         let mut buf = line.into_bytes();

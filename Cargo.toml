@@ -8,3 +8,4 @@ anyhow = "1.0.99"
 clap = { version = "4.5.47", features = ["derive"] }
 serialport = { version = "4.7.3", default-features = false }
 thiserror = "2.0.16"
+uuid = { version = "1.18.1", features = ["v4"] }

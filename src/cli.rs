@@ -16,7 +16,7 @@ pub enum Cmd {
     /// Transmit frames (max speed by default)
     Tx(TxOpts),
     /// Automated UART validation master/slave
-    Auto(AutoArgs)
+    Auto(AutoOpts),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -69,25 +69,41 @@ pub struct TxOpts {
 }
 
 #[derive(clap::Args, Debug, Clone)]
-pub struct AutoArgs {
-    #[arg(long)] pub dev: String,
-    #[arg(long)] pub master: bool,
-    #[arg(long)] pub slave: bool,
+pub struct AutoOpts {
+    #[arg(long)]
+    pub dev: String,
+    #[arg(long)]
+    pub master: bool,
+    #[arg(long)]
+    pub slave: bool,
     // test selection / params
-    #[arg(long, default_value="max-rate,fifo-residue")] pub tests: String,
-    #[arg(long, default_value="defaults")] pub bauds: String, // "defaults" or csv
-    #[arg(long, default_value="none,even,odd")] pub parity: String,
-    #[arg(long, default_value="8,7")] pub bits: String,
-    #[arg(long, default_value="tx,rx,both")] pub dir: String,
-    #[arg(long, default_value="none,rtscts")] pub flow: String,
-    #[arg(long, default_value_t = 128)] pub payload: usize,
-    #[arg(long, default_value_t = 10_000)] pub frames: usize,
-    #[arg(long)] pub duration_ms: Option<u64>,
+    #[arg(long, default_value = "max-rate,fifo-residue")]
+    pub tests: String,
+    #[arg(long, default_value = "defaults")]
+    pub bauds: String, // "defaults" or csv
+    #[arg(long, default_value = "none,even,odd")]
+    pub parity: String,
+    #[arg(long, default_value = "8,7")]
+    pub bits: String,
+    #[arg(long, default_value = "tx,rx,both")]
+    pub dir: String,
+    #[arg(long, default_value = "none,rtscts")]
+    pub flow: String,
+    #[arg(long, default_value_t = 128)]
+    pub payload: usize,
+    #[arg(long, default_value_t = 10_000)]
+    pub frames: usize,
+    #[arg(long)]
+    pub duration_ms: Option<u64>,
     // protocol timings
-    #[arg(long, default_value_t = 500)] pub hello_ms: u64,
-    #[arg(long, default_value_t = 4_000)] pub hello_backoff_max_ms: u64,
-    #[arg(long, default_value_t = 10_000)] pub repeat_timeout_ms: u64,
-    #[arg(long, default_value_t = 2)] pub repeat_hz: u32, // “current baud / 2” in spec; we’ll map to 2 Hz control repeats
+    #[arg(long, default_value_t = 500)]
+    pub hello_ms: u64,
+    #[arg(long, default_value_t = 4_000)]
+    pub hello_backoff_max_ms: u64,
+    #[arg(long, default_value_t = 10_000)]
+    pub repeat_timeout_ms: u64,
+    #[arg(long, default_value_t = 2)]
+    pub repeat_hz: u32, // “current baud / 2” in spec; we’ll map to 2 Hz control repeats
 }
 
 /// Typed pacing model to replace ad-hoc gap handling.

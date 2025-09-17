@@ -3,9 +3,7 @@ use std::{collections::BTreeMap, str::FromStr};
 
 use thiserror::Error;
 
-use super::command::{
-    CtrlCommand, Direction, FlowControl, Parity, TestName, TestResultFlag,
-};
+use super::command::{CtrlCommand, Direction, FlowControl, Parity, TestName, TestResultFlag};
 
 #[derive(Debug, Error)]
 pub enum ParseError {
@@ -53,7 +51,14 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
         }
 
         // ---- Config
-        ConfigSet { id, baud, parity, bits, dir, flow } => {
+        ConfigSet {
+            id,
+            baud,
+            parity,
+            bits,
+            dir,
+            flow,
+        } => {
             out.push_str("CONFIG SET");
             push_pair!("id", id);
             push_pair!("baud", baud);
@@ -62,7 +67,14 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             push_pair!("dir", direction_to_str(*dir));
             push_pair!("flow", flow_to_str(*flow));
         }
-        ConfigSetAck { id, baud, parity, bits, dir, flow } => {
+        ConfigSetAck {
+            id,
+            baud,
+            parity,
+            bits,
+            dir,
+            flow,
+        } => {
             out.push_str("CONFIG SET ACK");
             push_pair!("id", id);
             push_pair!("baud", baud);
@@ -73,7 +85,13 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
         }
 
         // ---- Test orchestration
-        TestBegin { id, name, frames, duration_ms, payload } => {
+        TestBegin {
+            id,
+            name,
+            frames,
+            duration_ms,
+            payload,
+        } => {
             out.push_str("TEST BEGIN");
             push_pair!("id", id);
             push_pair!("name", testname_to_str(*name));
@@ -85,7 +103,13 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             }
             push_pair!("payload", payload);
         }
-        TestBeginAck { id, name, frames, duration_ms, payload } => {
+        TestBeginAck {
+            id,
+            name,
+            frames,
+            duration_ms,
+            payload,
+        } => {
             out.push_str("TEST BEGIN ACK");
             push_pair!("id", id);
             push_pair!("name", testname_to_str(*name));
@@ -109,7 +133,16 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
         }
 
         TestResult {
-            id, result, rx_frames, rx_bytes, bad_crc, seq_gaps, overruns, errors, rate_bps, reason
+            id,
+            result,
+            rx_frames,
+            rx_bytes,
+            bad_crc,
+            seq_gaps,
+            overruns,
+            errors,
+            rate_bps,
+            reason,
         } => {
             out.push_str("TEST RESULT");
             push_pair!("id", id);
@@ -121,10 +154,10 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             push_pair!("overruns", overruns);
             push_pair!("errors", errors);
             push_pair!("rate_bps", rate_bps);
-            if let Some(r) = reason {
-                if !r.is_empty() {
-                    push_pair!("reason", escape_reason(r));
-                }
+            if let Some(r) = reason
+                && !r.is_empty()
+            {
+                push_pair!("reason", escape_reason(r));
             }
         }
 
@@ -156,14 +189,21 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
         return Err(ParseError::MissingTag);
     }
 
-    let kv_start = tokens.iter().position(|t| t.contains('=')).unwrap_or(tokens.len());
+    let kv_start = tokens
+        .iter()
+        .position(|t| t.contains('='))
+        .unwrap_or(tokens.len());
     let tag = tokens[..kv_start].join(" ");
     let mut map = BTreeMap::<String, String>::new();
 
     for &tok in &tokens[kv_start..] {
         let mut it = tok.splitn(2, '=');
-        let k = it.next().ok_or_else(|| ParseError::BadPair(tok.to_string()))?;
-        let v = it.next().ok_or_else(|| ParseError::BadPair(tok.to_string()))?;
+        let k = it
+            .next()
+            .ok_or_else(|| ParseError::BadPair(tok.to_string()))?;
+        let v = it
+            .next()
+            .ok_or_else(|| ParseError::BadPair(tok.to_string()))?;
         map.insert(k.to_string(), v.to_string());
     }
 
@@ -201,7 +241,9 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
             let frames = opt_u64(&map, "frames")?;
             let duration_ms = opt_u64(&map, "duration_ms")?;
             if frames.is_none() && duration_ms.is_none() {
-                return Err(ParseError::Semantic("TEST BEGIN requires frames or duration_ms"));
+                return Err(ParseError::Semantic(
+                    "TEST BEGIN requires frames or duration_ms",
+                ));
             }
             Ok(TestBegin {
                 id: req_s(&map, "id")?.to_string(),
@@ -241,7 +283,10 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
             overruns: req_u64(&map, "overruns")?,
             errors: req_u32(&map, "errors")?,
             rate_bps: req_u64(&map, "rate_bps")?,
-            reason: map.get("reason").map(|s| unescape_reason(s)).filter(|s| !s.is_empty()),
+            reason: map
+                .get("reason")
+                .map(|s| unescape_reason(s))
+                .filter(|s| !s.is_empty()),
         }),
 
         // ---- Terminate
@@ -259,34 +304,43 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
 /* ---------- helpers ---------- */
 
 fn req_s<'a>(map: &'a BTreeMap<String, String>, k: &'static str) -> Result<&'a str, ParseError> {
-    map.get(k).map(|s| s.as_str()).ok_or(ParseError::MissingField(k))
+    map.get(k)
+        .map(|s| s.as_str())
+        .ok_or(ParseError::MissingField(k))
 }
 
 fn req_u8(map: &BTreeMap<String, String>, k: &'static str) -> Result<u8, ParseError> {
-    map.get(k)
-        .ok_or(ParseError::MissingField(k))
-        .and_then(|v| v.parse::<u8>().map_err(|_| ParseError::BadInt(k, v.clone())))
+    map.get(k).ok_or(ParseError::MissingField(k)).and_then(|v| {
+        v.parse::<u8>()
+            .map_err(|_| ParseError::BadInt(k, v.clone()))
+    })
 }
 fn req_u32(map: &BTreeMap<String, String>, k: &'static str) -> Result<u32, ParseError> {
-    map.get(k)
-        .ok_or(ParseError::MissingField(k))
-        .and_then(|v| v.parse::<u32>().map_err(|_| ParseError::BadInt(k, v.clone())))
+    map.get(k).ok_or(ParseError::MissingField(k)).and_then(|v| {
+        v.parse::<u32>()
+            .map_err(|_| ParseError::BadInt(k, v.clone()))
+    })
 }
 fn req_u64(map: &BTreeMap<String, String>, k: &'static str) -> Result<u64, ParseError> {
-    map.get(k)
-        .ok_or(ParseError::MissingField(k))
-        .and_then(|v| v.parse::<u64>().map_err(|_| ParseError::BadInt(k, v.clone())))
+    map.get(k).ok_or(ParseError::MissingField(k)).and_then(|v| {
+        v.parse::<u64>()
+            .map_err(|_| ParseError::BadInt(k, v.clone()))
+    })
 }
 fn req_usize(map: &BTreeMap<String, String>, k: &'static str) -> Result<usize, ParseError> {
-    map.get(k)
-        .ok_or(ParseError::MissingField(k))
-        .and_then(|v| v.parse::<usize>().map_err(|_| ParseError::BadInt(k, v.clone())))
+    map.get(k).ok_or(ParseError::MissingField(k)).and_then(|v| {
+        v.parse::<usize>()
+            .map_err(|_| ParseError::BadInt(k, v.clone()))
+    })
 }
 
 fn opt_u64(map: &BTreeMap<String, String>, k: &'static str) -> Result<Option<u64>, ParseError> {
     Ok(match map.get(k) {
         None => None,
-        Some(v) => Some(v.parse::<u64>().map_err(|_| ParseError::BadInt(k, v.clone()))?),
+        Some(v) => Some(
+            v.parse::<u64>()
+                .map_err(|_| ParseError::BadInt(k, v.clone()))?,
+        ),
     })
 }
 
@@ -310,7 +364,10 @@ fn req_testname(map: &BTreeMap<String, String>, k: &'static str) -> Result<TestN
         .ok_or(ParseError::MissingField(k))
         .and_then(|v| TestName::from_str(v).map_err(|_| ParseError::BadEnum(k, v.clone())))
 }
-fn req_resultflag(map: &BTreeMap<String, String>, k: &'static str) -> Result<TestResultFlag, ParseError> {
+fn req_resultflag(
+    map: &BTreeMap<String, String>,
+    k: &'static str,
+) -> Result<TestResultFlag, ParseError> {
     map.get(k)
         .ok_or(ParseError::MissingField(k))
         .and_then(|v| TestResultFlag::from_str(v).map_err(|_| ParseError::BadEnum(k, v.clone())))
@@ -319,19 +376,36 @@ fn req_resultflag(map: &BTreeMap<String, String>, k: &'static str) -> Result<Tes
 /* ---------- enum string helpers & FromStr impls ---------- */
 
 fn parity_to_str(p: Parity) -> &'static str {
-    match p { Parity::None => "none", Parity::Even => "even", Parity::Odd => "odd" }
+    match p {
+        Parity::None => "none",
+        Parity::Even => "even",
+        Parity::Odd => "odd",
+    }
 }
 fn direction_to_str(d: Direction) -> &'static str {
-    match d { Direction::Tx => "tx", Direction::Rx => "rx", Direction::Both => "both" }
+    match d {
+        Direction::Tx => "tx",
+        Direction::Rx => "rx",
+        Direction::Both => "both",
+    }
 }
 fn flow_to_str(f: FlowControl) -> &'static str {
-    match f { FlowControl::None => "none", FlowControl::RtsCts => "rtscts" }
+    match f {
+        FlowControl::None => "none",
+        FlowControl::RtsCts => "rtscts",
+    }
 }
 fn testname_to_str(t: TestName) -> &'static str {
-    match t { TestName::MaxRate => "max-rate", TestName::FifoResidue => "fifo-residue" }
+    match t {
+        TestName::MaxRate => "max-rate",
+        TestName::FifoResidue => "fifo-residue",
+    }
 }
 fn resultflag_to_str(r: TestResultFlag) -> &'static str {
-    match r { TestResultFlag::Pass => "pass", TestResultFlag::Fail => "fail" }
+    match r {
+        TestResultFlag::Pass => "pass",
+        TestResultFlag::Fail => "fail",
+    }
 }
 
 // Allow simple FromStr for enums.
@@ -342,8 +416,8 @@ impl FromStr for Parity {
         match s.to_ascii_lowercase().as_str() {
             "none" => Ok(Parity::None),
             "even" => Ok(Parity::Even),
-            "odd"  => Ok(Parity::Odd),
-            _ => Err(())
+            "odd" => Ok(Parity::Odd),
+            _ => Err(()),
         }
     }
 }
@@ -354,7 +428,7 @@ impl FromStr for Direction {
             "tx" => Ok(Direction::Tx),
             "rx" => Ok(Direction::Rx),
             "both" => Ok(Direction::Both),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -364,7 +438,7 @@ impl FromStr for FlowControl {
         match s.to_ascii_lowercase().as_str() {
             "none" => Ok(FlowControl::None),
             "rtscts" => Ok(FlowControl::RtsCts),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -374,7 +448,7 @@ impl FromStr for TestName {
         match s.to_ascii_lowercase().as_str() {
             "max-rate" => Ok(TestName::MaxRate),
             "fifo-residue" => Ok(TestName::FifoResidue),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -384,7 +458,7 @@ impl FromStr for TestResultFlag {
         match s.to_ascii_lowercase().as_str() {
             "pass" => Ok(TestResultFlag::Pass),
             "fail" => Ok(TestResultFlag::Fail),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -394,18 +468,22 @@ impl FromStr for TestResultFlag {
 fn escape_reason(s: &str) -> String {
     // Key=value format can’t contain spaces, so replace spaces with underscores
     // and escape CR/LF. You can later swap to JSON if you want richer reasons.
-    s.replace(' ', "_").replace('\r', "\\r").replace('\n', "\\n")
+    s.replace(' ', "_")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
 }
 fn unescape_reason(s: &str) -> String {
-    s.replace("\\r", "\r").replace("\\n", "\n").replace('_', " ")
+    s.replace("\\r", "\r")
+        .replace("\\n", "\n")
+        .replace('_', " ")
 }
 
 /* ---------- tests ---------- */
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::command::*;
+    use super::*;
 
     #[test]
     fn roundtrip_config_set() {
@@ -421,7 +499,14 @@ mod tests {
         assert!(line.ends_with("\r\n"));
         let parsed = parse_command(&line).unwrap();
         match parsed {
-            CtrlCommand::ConfigSet { id, baud, parity, bits, dir, flow } => {
+            CtrlCommand::ConfigSet {
+                id,
+                baud,
+                parity,
+                bits,
+                dir,
+                flow,
+            } => {
                 assert_eq!(id, "m1");
                 assert_eq!(baud, 115200);
                 assert!(matches!(parity, Parity::None));
@@ -438,7 +523,13 @@ mod tests {
         let line = "TEST BEGIN id=aa name=max-rate frames=100 payload=128\r\n";
         let cmd = parse_command(line).unwrap();
         match cmd {
-            CtrlCommand::TestBegin { id, name, frames, duration_ms, payload } => {
+            CtrlCommand::TestBegin {
+                id,
+                name,
+                frames,
+                duration_ms,
+                payload,
+            } => {
                 assert_eq!(id, "aa");
                 assert!(matches!(name, TestName::MaxRate));
                 assert_eq!(frames, Some(100));
@@ -454,7 +545,14 @@ mod tests {
         let line = "TEST RESULT id=s1 result=fail rx_frames=99 rx_bytes=1000 bad_crc=1 seq_gaps=0 overruns=0 errors=0 rate_bps=123456 reason=timeout\r\n";
         let cmd = parse_command(line).unwrap();
         match cmd {
-            CtrlCommand::TestResult { id, result, rx_frames, bad_crc, reason, .. } => {
+            CtrlCommand::TestResult {
+                id,
+                result,
+                rx_frames,
+                bad_crc,
+                reason,
+                ..
+            } => {
                 assert_eq!(id, "s1");
                 assert!(matches!(result, TestResultFlag::Fail));
                 assert_eq!(rx_frames, 99);
@@ -465,4 +563,128 @@ mod tests {
         }
     }
 
+    #[test]
+    fn roundtrip_hello() {
+        let cmd = CtrlCommand::Hello {
+            id: "device1".into(),
+        };
+        let line = format_command(&cmd);
+        let parsed = parse_command(&line).unwrap();
+        match parsed {
+            CtrlCommand::Hello { id } => {
+                assert_eq!(id, "device1");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn roundtrip_ack() {
+        let cmd = CtrlCommand::Ack { id: "host2".into() };
+        let line = format_command(&cmd);
+        let parsed = parse_command(&line).unwrap();
+        match parsed {
+            CtrlCommand::Ack { id } => {
+                assert_eq!(id, "host2");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn parse_test_begin_duration() {
+        let line = "TEST BEGIN id=bb name=fifo-residue duration_ms=5000 payload=64\r\n";
+        let cmd = parse_command(line).unwrap();
+        match cmd {
+            CtrlCommand::TestBegin {
+                id,
+                name,
+                frames,
+                duration_ms,
+                payload,
+            } => {
+                assert_eq!(id, "bb");
+                assert!(matches!(name, TestName::FifoResidue));
+                assert_eq!(frames, None);
+                assert_eq!(duration_ms, Some(5000));
+                assert_eq!(payload, 64);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn roundtrip_test_done() {
+        let cmd = CtrlCommand::TestDone {
+            id: "test3".into(),
+            result: TestResultFlag::Pass,
+        };
+        let line = format_command(&cmd);
+        let parsed = parse_command(&line).unwrap();
+        match parsed {
+            CtrlCommand::TestDone { id, result } => {
+                assert_eq!(id, "test3");
+                assert!(matches!(result, TestResultFlag::Pass));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn roundtrip_terminate() {
+        let cmd = CtrlCommand::Terminate { id: "sess4".into() };
+        let line = format_command(&cmd);
+        let parsed = parse_command(&line).unwrap();
+        match parsed {
+            CtrlCommand::Terminate { id } => {
+                assert_eq!(id, "sess4");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_reason_escaping() {
+        let original = "Error with\r\nnewlines and spaces";
+        let escaped = escape_reason(original);
+        assert_eq!(escaped, "Error_with\\r\\nnewlines_and_spaces");
+        let unescaped = unescape_reason(&escaped);
+        assert_eq!(unescaped, original);
+    }
+
+    #[test]
+    fn test_error_cases() {
+        // Empty line
+        assert!(matches!(parse_command(""), Err(ParseError::Empty)));
+
+        // Unknown command
+        assert!(matches!(
+            parse_command("UNKNOWN id=123"),
+            Err(ParseError::UnknownTag(_))
+        ));
+
+        // Missing required field
+        assert!(matches!(
+            parse_command("HELLO"),
+            Err(ParseError::MissingField(_))
+        ));
+
+        // Bad integer
+        assert!(matches!(
+            parse_command("CONFIG SET id=x1 baud=invalid parity=none bits=8 dir=both flow=none"),
+            Err(ParseError::BadInt(_, _))
+        ));
+
+        // Bad enum
+        assert!(matches!(
+            parse_command("CONFIG SET id=x1 baud=9600 parity=invalid bits=8 dir=both flow=none"),
+            Err(ParseError::BadEnum(_, _))
+        ));
+
+        // Test BEGIN without frames or duration
+        assert!(matches!(
+            parse_command("TEST BEGIN id=x1 name=max-rate payload=128"),
+            Err(ParseError::Semantic(_))
+        ));
+    }
 }

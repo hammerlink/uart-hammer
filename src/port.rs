@@ -1,11 +1,28 @@
 use anyhow::{Result, bail};
 use serialport::{DataBits, SerialPort};
-use std::time::{Duration, Instant};
+use std::{
+    io,
+    sync::atomic::{AtomicBool},
+    time::{Duration, Instant},
+};
 
 use crate::{
-    proto::command::{FlowControl, Parity},
     cli::SerialOpts,
+    proto::command::{FlowControl, Parity},
 };
+
+// Global flag
+pub static DEBUG: AtomicBool = AtomicBool::new(false);
+
+// Macro definition
+#[macro_export]
+macro_rules! debug_eprintln {
+    ($($arg:tt)*) => {
+        if $crate::port::DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
+            eprintln!($($arg)*);
+        }
+    };
+}
 
 pub fn open_port(opts: &SerialOpts) -> Result<Box<dyn SerialPort>> {
     let builder = serialport::new(&opts.dev, opts.baud)
@@ -51,9 +68,7 @@ pub fn retune_for_config(
     Ok(())
 }
 
-pub fn port_default_config(
-    port: &mut dyn serialport::SerialPort,
-) -> Result<()> {
+pub fn port_default_config(port: &mut dyn serialport::SerialPort) -> Result<()> {
     retune_for_config(port, 115_200, Parity::None, 8, FlowControl::None)
 }
 
@@ -73,46 +88,94 @@ pub fn open_control(dev: &str) -> Result<Box<dyn SerialPort>> {
 
 /// Write a line (string must already have \r\n)
 pub fn write_line(port: &mut dyn SerialPort, line: &str) -> Result<()> {
+    debug_eprintln!("[port] write_line: {}", line.trim_end());
     port.write_all(line.as_bytes())?;
     port.flush()?;
     Ok(())
 }
 
-pub fn read_crlf_line(port: &mut dyn SerialPort, timeout: Option<Duration>) -> Result<Option<String>> {
-    let deadline = match timeout {
-        Some(t) => Some(Instant::now() + t),
-        None => None,
-    };
-
-    // Instant::now() + timeout;
+/// Read a CRLF-terminated line without changing the port's timeout.
+///
+/// Behavior:
+/// - Ok(Some(line)) → a full line (CRLF trimmed) was read
+/// - Ok(None)       → no full line available yet (WouldBlock, TimedOut, Ok(0))
+/// - Err(e)         → unexpected I/O error
+fn read_crlf_line(port: &mut dyn serialport::SerialPort) -> Result<Option<String>> {
     let mut buf = [0u8; 1];
     let mut line = Vec::new();
 
     loop {
-        if deadline.is_some() && Instant::now() >= deadline.unwrap() {
-            return Ok(None); // timeout
-        }
-
         match port.read(&mut buf) {
             Ok(0) => {
-                // no data (possible with non-blocking read)
-                continue;
+                // No data: on some backends this can mean "nothing available right now".
+                // Treat like a soft timeout for this attempt.
+                return Ok(None);
             }
             Ok(1) => {
                 line.push(buf[0]);
-                let s = String::from_utf8_lossy(&line);
 
-                if s.ends_with("\r\n") {
-                    let mut out = s.into_owned();
-                    // trim trailing CRLF
-                    while out.ends_with(['\r', '\n']) {
-                        out.pop();
-                    }
+                // Fast-path CRLF check without allocating a String every byte
+                let n = line.len();
+                if n >= 2 && line[n - 2] == b'\r' && line[n - 1] == b'\n' {
+                    // Trim trailing CRLF
+                    line.truncate(n - 2);
+                    // Lossy match original behavior (keeps you safe on bad utf8)
+                    let out = String::from_utf8_lossy(&line).into_owned();
                     return Ok(Some(out));
                 }
+
+                // Keep reading until we hit CRLF or the OS times us out.
+                continue;
             }
-            _ => {
-                return Ok(None) // treat errors as timeout for now
+            Err(e) => {
+                // We know `e` is an io::Error
+                let kind = e.kind();
+                match kind {
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+                        return Ok(None);
+                    }
+                    io::ErrorKind::Interrupted => continue,
+                    _ => return Err(e.into()), // promote to anyhow::Error
+                }
+            }
+            _ => return Ok(None), // should not happen
+        }
+    }
+}
+
+/// Wait for a line that your matcher accepts, with an overall deadline.
+/// - `timeout = Some(d)` → enforce total time limit across many reads
+/// - `timeout = None`    → wait indefinitely
+///
+/// `matcher` examines each full line; return `Some(T)` to accept, `None` to keep waiting.
+pub fn wait_for_command<T, F>(
+    port: &mut dyn serialport::SerialPort,
+    timeout: Option<Duration>,
+    mut matcher: F,
+) -> Result<T>
+where
+    F: FnMut(&str) -> Option<T>,
+{
+    let start = Instant::now();
+
+    loop {
+        if let Some(limit) = timeout {
+            if start.elapsed() >= limit {
+                bail!("timed out after {:?}", limit);
+            }
+        }
+
+        // Try to read *one* line within the remaining window.
+        match read_crlf_line(port)? {
+            Some(line) => {
+                if let Some(hit) = matcher(&line) {
+                    return Ok(hit);
+                }
+                // else: keep looping until deadline.
+            }
+            None => {
+                // This read attempt yielded nothing (timeout/WOULDBLOCK). Loop to retry
+                // until the overall deadline trips.
             }
         }
     }

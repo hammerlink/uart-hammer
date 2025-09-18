@@ -1,25 +1,16 @@
 use anyhow::{Context, Result};
-use std::time::{Duration, Instant};
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::cli::AutoOpts;
 use crate::port::{
-    open_control, port_default_config, read_crlf_line, retune_for_config, write_line,
+    open_control, port_default_config, retune_for_config, wait_for_command, write_line, DEBUG,
 };
-use crate::proto::command::{
-    CtrlCommand, Direction, FlowControl, Parity, TestName, TestResultFlag,
-};
+use crate::proto::command::{CtrlCommand, Direction, TestName, TestResultFlag};
 use crate::proto::parser::{format_command, parse_command};
 
 pub mod dataplane;
-
-#[derive(Debug, Clone)]
-struct CurrentConfig {
-    baud: u32,
-    parity: Parity,
-    bits: u8,
-    flow: FlowControl,
-}
 
 #[derive(Debug, Default)]
 struct TestCtx {
@@ -30,191 +21,164 @@ struct TestCtx {
 }
 
 pub fn run(args: AutoOpts) -> Result<()> {
+    if args.debug {
+        DEBUG.store(true, Ordering::Relaxed);
+    }
     // Open control channel at 115200 8N1 (line-mode)
     let mut port = open_control(&args.dev)
         .with_context(|| format!("opening control channel on {}", args.dev))?;
     // IDs
     let my_auto_id = Uuid::new_v4().to_string();
-    let mut master_id: Option<String> = None;
-
-    eprintln!("[slave] id={} starting HELLO loop", my_auto_id);
-
-    // Wait for HELLO from master, ACK it
-    listen_until_hello_sync(&mut *port, &my_auto_id)?;
+    eprintln!("[auto] id={} awaiting master", my_auto_id);
+    let mut master_id = wait_for_master_sync(&mut *port, &my_auto_id)?;
 
     // Main loop state
-    let mut cfg: Option<CurrentConfig> = None;
     let mut test = TestCtx::default();
 
     loop {
-        let line = read_crlf_line(&mut *port, None)?;
-        if line.is_none() {
-            continue;
-        }
-        if let Ok(cmd) = parse_command(&line.unwrap()) {
-            match cmd {
-                // Discovery ---------------------------------------------------
-                CtrlCommand::Ack { id } => {
-                    // Slave should ack, do nothing
-                }
-                CtrlCommand::Hello { id } => {
-                    // store master ID and ACK
-                    master_id = Some(id.clone());
-                    write_line(
-                        &mut *port,
-                        &format_command(&CtrlCommand::Ack {
-                            id: my_auto_id.clone(),
-                        }),
-                    )?;
-                }
+        let cmd = wait_for_command(&mut *port, None, |line: &str| {
+            let result = parse_command(line);
+            if let Ok(ref cmd) = result {
+                eprintln!("[auto] got command: {:?}", cmd);
+                return Some(cmd.clone());
+            }
+            None
+        })?;
 
-                // Config ------------------------------------------------------
-                CtrlCommand::ConfigSet {
-                    id,
+        match cmd {
+            CtrlCommand::ConfigSet {
+                id,
+                baud,
+                parity,
+                bits,
+                flow,
+            } => {
+                retune_for_config(&mut *port, baud, parity, bits, flow)
+                    .with_context(|| "retuning for CONFIG SET")?;
+                eprintln!(
+                    "[auto] config set by {}: baud={} parity={:?} bits={} flow={:?}",
+                    id, baud, parity, bits, flow
+                );
+                // ACK with same fields
+                let ack = CtrlCommand::ConfigSetAck {
+                    id: my_auto_id.clone(),
                     baud,
                     parity,
                     bits,
                     flow,
-                } => {
-                    master_id = Some(id.clone());
-                    retune_for_config(&mut *port, baud, parity, bits, flow)
-                        .with_context(|| "retuning for CONFIG SET")?;
+                };
+                write_line(&mut *port, &format_command(&ack))?;
+            }
+            CtrlCommand::TestBegin {
+                id,
+                name,
+                frames,
+                duration_ms,
+                payload,
+                dir,
+            } => {
+                if id != master_id {
                     eprintln!(
-                        "[slave] config set by {}: baud={} parity={:?} bits={} flow={:?}",
-                        id, baud, parity, bits, flow
+                        "[auto] warning: TEST BEGIN from unknown master id={}, expected {}",
+                        id, master_id
                     );
-                    cfg = Some(CurrentConfig {
-                        baud,
-                        parity,
-                        bits,
-                        flow,
-                    });
-
-                    // ACK with same fields
-                    let ack = CtrlCommand::ConfigSetAck {
-                        id: my_auto_id.clone(),
-                        baud,
-                        parity,
-                        bits,
-                        flow,
-                    };
-                    write_line(&mut *port, &format_command(&ack))?;
+                    continue; // ignore
                 }
-                CtrlCommand::ConfigSetAck { .. } => {
-                    // Slave never expects a ConfigSetAck; ignore
-                }
+                // (1) Stash context locally if you need it elsewhere
+                let _test_ctx = TestCtx {
+                    name: Some(name),
+                    frames,
+                    duration_ms,
+                    payload: Some(payload),
+                };
 
-                // Test orchestration -----------------------------------------
-                CtrlCommand::TestBegin {
-                    id,
+                // (2) Send ACK back immediately
+                let ack = CtrlCommand::TestBeginAck {
+                    id: my_auto_id.to_string(),
                     name,
                     frames,
                     duration_ms,
                     payload,
                     dir,
-                } => {
-                    // (1) Stash context locally if you need it elsewhere
-                    let _test_ctx = TestCtx {
-                        name: Some(name.clone()),
-                        frames,
-                        duration_ms,
-                        payload: Some(payload.clone()),
-                    };
+                };
+                write_line(&mut *port, &format_command(&ack))?;
 
-                    // (2) Send ACK back immediately
-                    let ack = CtrlCommand::TestBeginAck {
-                        id: my_auto_id.to_string(),
-                        name,
-                        frames,
-                        duration_ms,
-                        payload,
-                        dir,
-                    };
-                    write_line(&mut *port, &format_command(&ack))?;
+                // TODO implement test logic here
 
-                    // TODO: replace this with your real test runner returning Option<TestOutcome>
-                    let outcome: Option<dataplane::TestOutcome> = None;
-                    end_with_repeat_mode(
-                        &mut *port,
-                        &my_auto_id,
-                        ack_party(dir),
-                        Duration::from_millis(args.repeat_timeout_ms),
-                    )?;
-
-                    let res =
-                        build_test_result(&my_auto_id, outcome.as_ref(), "not implemented yet");
-                    write_line(&mut *port, &format_command(&res))?;
-                    // Optional: you can still log this locally
-                    log_test_result(&res);
-                }
-                CtrlCommand::TestBeginAck { .. } => {
-                    // Slave doesn’t expect this; ignore.
-                }
-
-                // End-of-test repeat-mode messages ----------------------------
-                CtrlCommand::TestDone { id: _, result: _ } => {
-                    // We are the ACK party in HD (RX) or FD (Slave), so ACK
+                let is_ack_mode = is_test_done_ack_mode(dir);
+                if is_ack_mode {
+                    wait_for_test_done(&mut *port, Duration::from_millis(args.repeat_timeout_ms))?;
                     let ack = CtrlCommand::TestDoneAck {
                         id: my_auto_id.clone(),
                     };
                     write_line(&mut *port, &format_command(&ack))?;
-                }
-                CtrlCommand::TestDoneAck { .. } => {
-                    // Not strictly needed on slave (we only send ACKs), ignore
-                }
-
-                // Peer RESULT (master’s) --------------------------------------
-                CtrlCommand::TestResult { .. } => {
-                    // Optional: print/record master’s result
-                    // You can parse and mirror to console if you want.
-                }
-
-                // Termination -------------------------------------------------
-                CtrlCommand::Terminate { .. } => {
-                    // Acknowledge and go back to discovery
-                    let ack = CtrlCommand::TerminateAck {
+                } else {
+                    let test_done = CtrlCommand::TestDone {
                         id: my_auto_id.clone(),
+                        result: TestResultFlag::Fail, // placeholder
                     };
-                    write_line(&mut *port, &format_command(&ack))?;
-                    // reset local state and start HELLO loop again
-                    cfg = None;
-                    test = TestCtx::default();
-                    listen_until_hello_sync(&mut *port, &my_auto_id)?;
+                    write_line(&mut *port, &format_command(&test_done))?;
                 }
-                CtrlCommand::TerminateAck { .. } => {
-                    // Slave doesn’t expect this; ignore
-                }
+
+                let res = build_test_result(&my_auto_id, None, "not implemented yet");
+                write_line(&mut *port, &format_command(&res))?;
+                // Optional: you can still log this locally
+                log_test_result(&res);
+            }
+
+            // Peer RESULT (master’s) --------------------------------------
+            CtrlCommand::TestResult { .. } => {
+                // Optional: print/record master’s result
+                // You can parse and mirror to console if you want.
+            }
+
+            // Termination -------------------------------------------------
+            CtrlCommand::Terminate { .. } => {
+                // Acknowledge and go back to discovery
+                let ack = CtrlCommand::TerminateAck {
+                    id: my_auto_id.clone(),
+                };
+                write_line(&mut *port, &format_command(&ack))?;
+                // reset local state and start HELLO loop again
+                test = TestCtx::default();
+                master_id = wait_for_master_sync(&mut *port, &my_auto_id)?;
+            }
+            _ => {
+                eprintln!("[auto] warning: ignoring unexpected command {:?}", cmd);
             }
         }
     }
 }
 
 /* -------------------- helpers -------------------- */
-fn listen_until_hello_sync(port: &mut dyn serialport::SerialPort, my_id: &str) -> Result<String> {
+fn wait_for_master_sync(port: &mut dyn serialport::SerialPort, my_id: &str) -> Result<String> {
     // Ensure port is in default config
     port_default_config(port)?;
 
-    loop {
-        let line = read_crlf_line(port, None)?;
-        if line.is_none() {
-            continue;
+    wait_for_command(port, None, |line: &str| {
+        if let Ok(cmd) = parse_command(line)
+            && let CtrlCommand::Hello { id } = cmd
+        {
+            eprintln!(
+                "[auto] id={} got HELLO from master id={}, entering main loop",
+                my_id,
+                id.as_str()
+            );
+            return Some(id);
         }
-        if let Ok(cmd) = parse_command(&line.unwrap()) {
-            if let CtrlCommand::Hello { id } = cmd {
-                eprintln!(
-                    "[auto] id={} got HELLO from master id={}, entering main loop",
-                    my_id,
-                    id.as_str()
-                );
-                // ACK back
-                let ack = CtrlCommand::Ack {
-                    id: my_id.to_string(),
-                };
-                write_line(port, &format_command(&ack))?;
-                return Ok(id);
-            }
+        None
+    })
+}
+
+fn wait_for_test_done(port: &mut dyn serialport::SerialPort, timeout: Duration) -> Result<()> {
+    wait_for_command(port, Some(timeout), |line: &str| {
+        if let Ok(cmd) = parse_command(line)
+            && let CtrlCommand::TestDone { .. } = cmd
+        {
+            return Some(());
         }
-    }
+        None
+    })
 }
 
 fn build_test_result(
@@ -269,7 +233,7 @@ fn log_test_result(res: &CtrlCommand) {
     } = res
     {
         eprintln!(
-            "[slave] result={:?} frames={} bytes={} bad_crc={} gaps={} overruns={} errors=0x{:X} rate_bps={} reason={}",
+            "[auto] result={:?} frames={} bytes={} bad_crc={} gaps={} overruns={} errors=0x{:X} rate_bps={} reason={}",
             result,
             rx_frames,
             rx_bytes,
@@ -284,50 +248,9 @@ fn log_test_result(res: &CtrlCommand) {
 }
 
 /// Which side sends ACK in repeat-mode?
-fn ack_party(dir: Direction) -> AckParty {
+fn is_test_done_ack_mode(dir: Direction) -> bool {
     match dir {
-        Direction::Tx | Direction::Rx => AckParty::WeAckOnRx, // in HD, RX acks
-        Direction::Both => AckParty::WeAckAlways,             // as slave in FD, we ack
-    }
-}
-
-enum AckParty {
-    WeAckOnRx,
-    WeAckAlways,
-}
-
-/// Implements the end-of-test repeat-mode behavior.
-/// - If we are the ACK party, we *only* send ACKs on incoming DONEs.
-/// - Otherwise, we send DONE every 500ms until we see an ACK or timeout.
-fn end_with_repeat_mode(
-    port: &mut dyn serialport::SerialPort,
-    my_id: &str,
-    ack_party: AckParty,
-    timeout: Duration,
-) -> Result<()> {
-    let start = Instant::now();
-
-    match ack_party {
-        AckParty::WeAckOnRx | AckParty::WeAckAlways => {
-            // For slave we never originate DONE in your spec; we ACK the other side's DONE.
-            // We still need to sit here for the repeat window to catch the DONE and ACK it.
-            while start.elapsed() < timeout {
-                let line = read_crlf_line(port, Some(timeout))?;
-                if line.is_none() {
-                    continue;
-                }
-                if let Ok(cmd) = parse_command(&line.unwrap())
-                    && let CtrlCommand::TestDone { .. } = cmd
-                {
-                    let ack = CtrlCommand::TestDoneAck {
-                        id: my_id.to_string(),
-                    };
-                    write_line(port, &format_command(&ack))?;
-                    return Ok(());
-                }
-            }
-            // Timeout without seeing DONE — fine, proceed
-            Ok(())
-        }
+        Direction::Tx => false,
+        Direction::Both | Direction::Rx => true,
     }
 }

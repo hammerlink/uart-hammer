@@ -1,47 +1,69 @@
-use std::time::Duration;
+use std::{sync::atomic::Ordering, time::Duration};
 
 use anyhow::{Context, Result};
+use uuid::Uuid;
 
 use crate::{
-    proto::command::CtrlCommand,
-    port::{port_default_config, read_crlf_line, write_line},
-    proto::parser::{format_command, parse_command},
+    port::{open_control, port_default_config, wait_for_command, write_line, DEBUG},
+    proto::{
+        command::CtrlCommand,
+        parser::{format_command, parse_command},
+    },
 };
 
-pub fn run(opts: crate::cli::TestOpts) -> Result<()> {
-    // TODO
+pub fn run(args: crate::cli::TestOpts) -> Result<()> {
+    if args.debug {
+        DEBUG.store(true, Ordering::Relaxed);
+    }
+    let mut port = open_control(&args.dev)
+        .with_context(|| format!("opening control channel on {}", args.dev))?;
+
+    port_default_config(&mut *port)?;
+
+    let my_auto_id = Uuid::new_v4().to_string();
+    eprintln!("[test] id={} awaiting slave", my_auto_id);
+    let _slave_id = wait_for_test_slave_sync(
+        &mut *port,
+        &my_auto_id,
+        args.hello_ms,
+        args.hello_backoff_max_ms,
+    )
+    .with_context(|| "waiting for test slave sync")?;
+
     Ok(())
 }
 
-fn hello_until_ack_sync(
+fn wait_for_test_slave_sync(
     port: &mut dyn serialport::SerialPort,
     my_id: &str,
     initial_ms: u64,
     max_ms: u64,
-) -> Result<()> {
+) -> Result<String> {
     // Ensure port is in default config
-    port_default_config(port)?;
 
-    let mut backoff = initial_ms.max(50);
+    let mut backoff = initial_ms.max(200);
     loop {
         let hello = CtrlCommand::Hello {
             id: my_id.to_string(),
         };
         write_line(port, &format_command(&hello))?;
 
-        // poll for ACK within current backoff
-        let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_millis(backoff) {
-            let line = read_crlf_line(port, None)?;
-            if line.is_none() {
-                continue;
-            }
-            if let Ok(cmd) = parse_command(&line.unwrap())
-                && matches!(cmd, CtrlCommand::Ack { .. })
-            {
-                return Ok(());
-            }
+        let slave_id =
+            wait_for_command(port, Some(Duration::from_millis(backoff)), |line: &str| {
+                let result = parse_command(line);
+                if let Ok(ref cmd) = result
+                    && let CtrlCommand::Hello { id } = cmd
+                {
+                    eprintln!("[test] got HELLO from slave id={}", id);
+                    return Some(id.clone());
+                }
+                None
+            })
+            .ok();
+        if let Some(id) = slave_id {
+            return Ok(id);
         }
+
         backoff = (backoff.saturating_mul(2)).min(max_ms.max(initial_ms));
     }
 }

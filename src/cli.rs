@@ -106,6 +106,9 @@ pub struct TestOpts {
     pub repeat_timeout_ms: u64,
     #[arg(long, default_value_t = 2)]
     pub repeat_hz: u32, // “current baud / 2” in spec; we’ll map to 2 Hz control repeats
+    /// Print each CMD line
+    #[arg(long, default_value_t = false)]
+    pub debug: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -114,6 +117,9 @@ pub struct AutoOpts {
     pub dev: String,
     #[arg(long, default_value_t = 10_000)]
     pub repeat_timeout_ms: u64,
+    /// Print each CMD line
+    #[arg(long, default_value_t = false)]
+    pub debug: bool,
 }
 
 /// Typed pacing model to replace ad-hoc gap handling.

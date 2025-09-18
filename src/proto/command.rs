@@ -10,7 +10,6 @@ pub enum CtrlCommand {
         baud: u32,
         parity: Parity,
         bits: u8,
-        dir: Direction,
         flow: FlowControl,
     },
     ConfigSetAck {
@@ -18,7 +17,6 @@ pub enum CtrlCommand {
         baud: u32,
         parity: Parity,
         bits: u8,
-        dir: Direction,
         flow: FlowControl,
     },
 
@@ -29,6 +27,7 @@ pub enum CtrlCommand {
         frames: Option<u64>,      // either frames or duration_ms must be Some
         duration_ms: Option<u64>,
         payload: usize,
+        dir: Direction,
     },
     TestBeginAck {
         id: String,
@@ -36,6 +35,7 @@ pub enum CtrlCommand {
         frames: Option<u64>,
         duration_ms: Option<u64>,
         payload: usize,
+        dir: Direction,
     },
 
     TestDone {

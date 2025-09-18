@@ -17,6 +17,8 @@ pub enum Cmd {
     Tx(TxOpts),
     /// Automated UART validation master/slave
     Auto(AutoOpts),
+    /// Run specific tests (internal)
+    Test(TestOpts),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -69,7 +71,7 @@ pub struct TxOpts {
 }
 
 #[derive(clap::Args, Debug, Clone)]
-pub struct AutoOpts {
+pub struct TestOpts {
     #[arg(long)]
     pub dev: String,
     #[arg(long)]
@@ -104,6 +106,14 @@ pub struct AutoOpts {
     pub repeat_timeout_ms: u64,
     #[arg(long, default_value_t = 2)]
     pub repeat_hz: u32, // “current baud / 2” in spec; we’ll map to 2 Hz control repeats
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct AutoOpts {
+    #[arg(long)]
+    pub dev: String,
+    #[arg(long, default_value_t = 10_000)]
+    pub repeat_timeout_ms: u64,
 }
 
 /// Typed pacing model to replace ad-hoc gap handling.

@@ -56,7 +56,6 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             baud,
             parity,
             bits,
-            dir,
             flow,
         } => {
             out.push_str("CONFIG SET");
@@ -64,7 +63,6 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             push_pair!("baud", baud);
             push_pair!("parity", parity_to_str(*parity));
             push_pair!("bits", bits);
-            push_pair!("dir", direction_to_str(*dir));
             push_pair!("flow", flow_to_str(*flow));
         }
         ConfigSetAck {
@@ -72,7 +70,6 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             baud,
             parity,
             bits,
-            dir,
             flow,
         } => {
             out.push_str("CONFIG SET ACK");
@@ -80,7 +77,6 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             push_pair!("baud", baud);
             push_pair!("parity", parity_to_str(*parity));
             push_pair!("bits", bits);
-            push_pair!("dir", direction_to_str(*dir));
             push_pair!("flow", flow_to_str(*flow));
         }
 
@@ -90,6 +86,7 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             name,
             frames,
             duration_ms,
+            dir,
             payload,
         } => {
             out.push_str("TEST BEGIN");
@@ -109,6 +106,7 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             frames,
             duration_ms,
             payload,
+            dir,
         } => {
             out.push_str("TEST BEGIN ACK");
             push_pair!("id", id);
@@ -120,6 +118,7 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
                 push_pair!("duration_ms", t);
             }
             push_pair!("payload", payload);
+            push_pair!("dir", direction_to_str(*dir));
         }
 
         TestDone { id, result } => {
@@ -224,7 +223,6 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
             baud: req_u32(&map, "baud")?,
             parity: req_parity(&map, "parity")?,
             bits: req_u8(&map, "bits")?,
-            dir: req_dir(&map, "dir")?,
             flow: req_flow(&map, "flow")?,
         }),
         "CONFIG SET ACK" => Ok(ConfigSetAck {
@@ -232,7 +230,6 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
             baud: req_u32(&map, "baud")?,
             parity: req_parity(&map, "parity")?,
             bits: req_u8(&map, "bits")?,
-            dir: req_dir(&map, "dir")?,
             flow: req_flow(&map, "flow")?,
         }),
 
@@ -251,6 +248,7 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
                 frames,
                 duration_ms,
                 payload: req_usize(&map, "payload")?,
+                dir: req_dir(&map, "dir")?,
             })
         }
         "TEST BEGIN ACK" => {
@@ -262,6 +260,7 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
                 frames,
                 duration_ms,
                 payload: req_usize(&map, "payload")?,
+                dir: req_dir(&map, "dir")?,
             })
         }
 
@@ -492,7 +491,6 @@ mod tests {
             baud: 115200,
             parity: Parity::None,
             bits: 8,
-            dir: Direction::Both,
             flow: FlowControl::None,
         };
         let line = format_command(&cmd);
@@ -504,14 +502,12 @@ mod tests {
                 baud,
                 parity,
                 bits,
-                dir,
                 flow,
             } => {
                 assert_eq!(id, "m1");
                 assert_eq!(baud, 115200);
                 assert!(matches!(parity, Parity::None));
                 assert_eq!(bits, 8);
-                assert!(matches!(dir, Direction::Both));
                 assert!(matches!(flow, FlowControl::None));
             }
             _ => panic!("wrong variant"),
@@ -520,7 +516,7 @@ mod tests {
 
     #[test]
     fn parse_test_begin_frames() {
-        let line = "TEST BEGIN id=aa name=max-rate frames=100 payload=128\r\n";
+        let line = "TEST BEGIN id=aa name=max-rate frames=100 payload=128 dir=both\r\n";
         let cmd = parse_command(line).unwrap();
         match cmd {
             CtrlCommand::TestBegin {
@@ -529,12 +525,14 @@ mod tests {
                 frames,
                 duration_ms,
                 payload,
+                dir,
             } => {
                 assert_eq!(id, "aa");
                 assert!(matches!(name, TestName::MaxRate));
                 assert_eq!(frames, Some(100));
                 assert_eq!(duration_ms, None);
                 assert_eq!(payload, 128);
+                assert!(matches!(dir, Direction::Both));
             }
             _ => panic!("wrong variant"),
         }
@@ -593,7 +591,7 @@ mod tests {
 
     #[test]
     fn parse_test_begin_duration() {
-        let line = "TEST BEGIN id=bb name=fifo-residue duration_ms=5000 payload=64\r\n";
+        let line = "TEST BEGIN id=bb name=fifo-residue duration_ms=5000 payload=64 dir=both\r\n";
         let cmd = parse_command(line).unwrap();
         match cmd {
             CtrlCommand::TestBegin {
@@ -602,12 +600,14 @@ mod tests {
                 frames,
                 duration_ms,
                 payload,
+                dir,
             } => {
                 assert_eq!(id, "bb");
                 assert!(matches!(name, TestName::FifoResidue));
                 assert_eq!(frames, None);
                 assert_eq!(duration_ms, Some(5000));
                 assert_eq!(payload, 64);
+                assert!(matches!(dir, Direction::Both));
             }
             _ => panic!("wrong variant"),
         }

@@ -3,7 +3,7 @@ use serialport::{DataBits, SerialPort};
 use std::time::{Duration, Instant};
 
 use crate::{
-    auto::proto::command::{FlowControl, Parity},
+    proto::command::{FlowControl, Parity},
     cli::SerialOpts,
 };
 
@@ -49,6 +49,12 @@ pub fn retune_for_config(
         FlowControl::RtsCts => SpFlow::Hardware,
     })?;
     Ok(())
+}
+
+pub fn port_default_config(
+    port: &mut dyn serialport::SerialPort,
+) -> Result<()> {
+    retune_for_config(port, 115_200, Parity::None, 8, FlowControl::None)
 }
 
 /// Open the *control channel* (always 115200, 8N1, no flow)

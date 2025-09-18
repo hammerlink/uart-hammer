@@ -1,6 +1,8 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use clap::{Args, Parser, Subcommand};
 use std::time::Duration;
+
+use crate::proto::command::{CtrlCommand, FlowControl, Parity};
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "uart-lab", about = "UART tester (tx/rx) with framing & stats")]
@@ -74,15 +76,11 @@ pub struct TxOpts {
 pub struct TestOpts {
     #[arg(long)]
     pub dev: String,
-    #[arg(long)]
-    pub master: bool,
-    #[arg(long)]
-    pub slave: bool,
     // test selection / params
     #[arg(long, default_value = "max-rate,fifo-residue")]
     pub tests: String,
-    #[arg(long, default_value = "defaults")]
-    pub bauds: String, // "defaults" or csv
+    #[arg(long, default_value_t = 115_200)]
+    pub bauds: u32, // "defaults" or csv
     #[arg(long, default_value = "none,even,odd")]
     pub parity: String,
     #[arg(long, default_value = "8,7")]
@@ -120,6 +118,9 @@ pub struct AutoOpts {
     /// Print each CMD line
     #[arg(long, default_value_t = false)]
     pub debug: bool,
+    /// Inactive time out
+    #[arg(long, default_value_t = 60_000)]
+    pub inactive_timeout_ms: u64,
 }
 
 /// Typed pacing model to replace ad-hoc gap handling.
@@ -155,5 +156,41 @@ impl Pacing {
                 Some(Duration::from_micros((target_s * 1_000_000.0) as u64))
             }
         }
+    }
+}
+
+/// Cleaned-up struct for a parsed configuration
+pub struct PortConfig {
+    pub baud: u32,
+    pub parity: Parity,
+    pub bits: u8,
+    pub flow: FlowControl,
+}
+
+impl TestOpts {
+    pub fn to_port_config(&self) -> anyhow::Result<PortConfig> {
+        let baud = self.bauds;
+
+        let parity = match self.parity.split(',').next().unwrap_or("none") {
+            "none" => Parity::None,
+            "even" => Parity::Even,
+            "odd" => Parity::Odd,
+            other => bail!("unsupported parity: {}", other),
+        };
+
+        let bits: u8 = self.bits.split(',').next().unwrap_or("8").parse()?;
+
+        let flow = match self.flow.split(',').next().unwrap_or("none") {
+            "none" => FlowControl::None,
+            "rtscts" => FlowControl::RtsCts,
+            other => bail!("unsupported flow control: {}", other),
+        };
+
+        Ok(PortConfig {
+            baud,
+            parity,
+            bits,
+            flow,
+        })
     }
 }

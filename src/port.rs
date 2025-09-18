@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use serialport::{DataBits, SerialPort};
 use std::{
     io,
-    sync::atomic::{AtomicBool},
+    sync::atomic::AtomicBool,
     time::{Duration, Instant},
 };
 
@@ -12,13 +12,13 @@ use crate::{
 };
 
 // Global flag
-pub static DEBUG: AtomicBool = AtomicBool::new(false);
+pub static PORT_DEBUG: AtomicBool = AtomicBool::new(false);
 
 // Macro definition
 #[macro_export]
 macro_rules! debug_eprintln {
     ($($arg:tt)*) => {
-        if $crate::port::DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
+        if $crate::port::PORT_DEBUG.load(std::sync::atomic::Ordering::Relaxed) {
             eprintln!($($arg)*);
         }
     };
@@ -65,6 +65,21 @@ pub fn retune_for_config(
         FlowControl::None => SpFlow::None,
         FlowControl::RtsCts => SpFlow::Hardware,
     })?;
+    debug_eprintln!(
+        "[port] reconfigured to {} {}-{}-{}-{}",
+        baud,
+        bits,
+        match parity {
+            Parity::None => "N",
+            Parity::Even => "E",
+            Parity::Odd => "O",
+        },
+        1, // stop bits
+        match flow {
+            FlowControl::None => "",
+            FlowControl::RtsCts => " +RTS/CTS",
+        }
+    );
     Ok(())
 }
 
@@ -159,16 +174,17 @@ where
     let start = Instant::now();
 
     loop {
-        if let Some(limit) = timeout {
-            if start.elapsed() >= limit {
-                bail!("timed out after {:?}", limit);
-            }
+        if let Some(limit) = timeout
+            && start.elapsed() >= limit
+        {
+            bail!("timed out after {:?}", limit);
         }
 
         // Try to read *one* line within the remaining window.
         match read_crlf_line(port)? {
             Some(line) => {
                 if let Some(hit) = matcher(&line) {
+                    debug_eprintln!("[port] matched line: {}", line);
                     return Ok(hit);
                 }
                 // else: keep looping until deadline.

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::cli::AutoOpts;
 use crate::port::{
-    open_control, port_default_config, retune_for_config, wait_for_command, write_line, DEBUG,
+    PORT_DEBUG, open_control, port_default_config, retune_for_config, wait_for_command, write_line,
 };
 use crate::proto::command::{CtrlCommand, Direction, TestName, TestResultFlag};
 use crate::proto::parser::{format_command, parse_command};
@@ -22,28 +22,41 @@ struct TestCtx {
 
 pub fn run(args: AutoOpts) -> Result<()> {
     if args.debug {
-        DEBUG.store(true, Ordering::Relaxed);
+        PORT_DEBUG.store(true, Ordering::Relaxed);
     }
     // Open control channel at 115200 8N1 (line-mode)
     let mut port = open_control(&args.dev)
         .with_context(|| format!("opening control channel on {}", args.dev))?;
     // IDs
     let my_auto_id = Uuid::new_v4().to_string();
-    eprintln!("[auto] id={} awaiting master", my_auto_id);
     let mut master_id = wait_for_master_sync(&mut *port, &my_auto_id)?;
 
     // Main loop state
     let mut test = TestCtx::default();
 
     loop {
-        let cmd = wait_for_command(&mut *port, None, |line: &str| {
-            let result = parse_command(line);
-            if let Ok(ref cmd) = result {
-                eprintln!("[auto] got command: {:?}", cmd);
-                return Some(cmd.clone());
+        let cmd = match wait_for_command(
+            &mut *port,
+            Some(Duration::from_millis(args.inactive_timeout_ms)),
+            |line: &str| {
+                let result = parse_command(line);
+                if let Ok(ref cmd) = result {
+                    eprintln!("[auto] got command: {:?}", cmd);
+                    return Some(cmd.clone());
+                }
+                None
+            },
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[auto] error waiting for command: {}", e);
+                eprintln!("[auto] assuming master inactive, returning to HELLO");
+                // reset local state and start HELLO loop again
+                test = TestCtx::default();
+                master_id = wait_for_master_sync(&mut *port, &my_auto_id)?;
+                continue;
             }
-            None
-        })?;
+        };
 
         match cmd {
             CtrlCommand::ConfigSet {
@@ -53,12 +66,6 @@ pub fn run(args: AutoOpts) -> Result<()> {
                 bits,
                 flow,
             } => {
-                retune_for_config(&mut *port, baud, parity, bits, flow)
-                    .with_context(|| "retuning for CONFIG SET")?;
-                eprintln!(
-                    "[auto] config set by {}: baud={} parity={:?} bits={} flow={:?}",
-                    id, baud, parity, bits, flow
-                );
                 // ACK with same fields
                 let ack = CtrlCommand::ConfigSetAck {
                     id: my_auto_id.clone(),
@@ -68,6 +75,12 @@ pub fn run(args: AutoOpts) -> Result<()> {
                     flow,
                 };
                 write_line(&mut *port, &format_command(&ack))?;
+                retune_for_config(&mut *port, baud, parity, bits, flow)
+                    .with_context(|| "retuning for CONFIG SET")?;
+                eprintln!(
+                    "[auto] config set by {}: baud={} parity={:?} bits={} flow={:?}",
+                    id, baud, parity, bits, flow
+                );
             }
             CtrlCommand::TestBegin {
                 id,
@@ -134,6 +147,7 @@ pub fn run(args: AutoOpts) -> Result<()> {
 
             // Termination -------------------------------------------------
             CtrlCommand::Terminate { .. } => {
+                eprintln!("[auto] received TERMINATE from master id={}", master_id);
                 // Acknowledge and go back to discovery
                 let ack = CtrlCommand::TerminateAck {
                     id: my_auto_id.clone(),
@@ -154,6 +168,7 @@ pub fn run(args: AutoOpts) -> Result<()> {
 fn wait_for_master_sync(port: &mut dyn serialport::SerialPort, my_id: &str) -> Result<String> {
     // Ensure port is in default config
     port_default_config(port)?;
+    eprintln!("[auto] id={} awaiting master", my_id);
 
     let master_id = wait_for_command(port, None, |line: &str| {
         if let Ok(cmd) = parse_command(line)
@@ -169,7 +184,6 @@ fn wait_for_master_sync(port: &mut dyn serialport::SerialPort, my_id: &str) -> R
         None
     })?;
 
-    
     let ack = CtrlCommand::Ack {
         id: my_id.to_string(),
     };

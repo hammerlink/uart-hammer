@@ -4,7 +4,10 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 
 use crate::{
-    port::{DEBUG, open_control, port_default_config, wait_for_command, write_line},
+    cli::PortConfig,
+    port::{
+        PORT_DEBUG, open_control, port_default_config, retune_for_config, wait_for_command, write_line,
+    },
     proto::{
         command::CtrlCommand,
         parser::{format_command, parse_command},
@@ -13,7 +16,7 @@ use crate::{
 
 pub fn run(args: crate::cli::TestOpts) -> Result<()> {
     if args.debug {
-        DEBUG.store(true, Ordering::Relaxed);
+        PORT_DEBUG.store(true, Ordering::Relaxed);
     }
     let mut port = open_control(&args.dev)
         .with_context(|| format!("opening control channel on {}", args.dev))?;
@@ -29,6 +32,26 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
         args.hello_backoff_max_ms,
     )
     .with_context(|| "waiting for test slave sync")?;
+
+    let mut port_config = args.to_port_config()?;
+    port_config.baud = 57_600; // force 57600 for test
+    send_config_set(&mut *port, &my_auto_id, &port_config)?;
+
+    let terminate = CtrlCommand::Terminate { id: my_auto_id };
+    write_line(&mut *port, &format_command(&terminate))?;
+    wait_for_command(
+        &mut *port,
+        Some(Duration::from_millis(5_000)),
+        |line: &str| {
+            let result = parse_command(line);
+            if let Ok(ref cmd) = result
+                && let CtrlCommand::TerminateAck { .. } = cmd
+            {
+                return Some(());
+            }
+            None
+        },
+    )?;
 
     Ok(())
 }
@@ -66,4 +89,36 @@ fn wait_for_test_slave_sync(
 
         backoff = (backoff.saturating_mul(2)).min(max_ms.max(initial_ms));
     }
+}
+
+fn send_config_set(
+    port: &mut dyn serialport::SerialPort,
+    my_id: &str,
+    port_config: &PortConfig,
+) -> Result<()> {
+    let config_set = CtrlCommand::ConfigSet {
+        id: my_id.to_string(),
+        baud: port_config.baud,
+        parity: port_config.parity,
+        bits: port_config.bits,
+        flow: port_config.flow,
+    };
+    write_line(port, &format_command(&config_set))?;
+    wait_for_command(port, Some(Duration::from_millis(10_000)), |line: &str| {
+        let result = parse_command(line);
+        if let Ok(ref cmd) = result
+            && let CtrlCommand::ConfigSetAck { .. } = cmd
+        {
+            return Some(());
+        }
+        None
+    })?;
+    retune_for_config(
+        port,
+        port_config.baud,
+        port_config.parity,
+        port_config.bits,
+        port_config.flow,
+    )?;
+    Ok(())
 }

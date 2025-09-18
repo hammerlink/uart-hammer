@@ -1,4 +1,4 @@
-use std::{sync::atomic::Ordering, time::Duration};
+use std::{sync::atomic::Ordering, thread::sleep, time::Duration};
 
 use anyhow::{Context, Result};
 use uuid::Uuid;
@@ -6,13 +6,19 @@ use uuid::Uuid;
 use crate::{
     cli::PortConfig,
     port::{
-        PORT_DEBUG, open_control, port_default_config, retune_for_config, wait_for_command, write_line,
+        PORT_DEBUG, open_control, port_default_config, retune_for_config, wait_for_command,
+        write_line,
     },
     proto::{
-        command::CtrlCommand,
+        command::{CtrlCommand, Direction, TestName},
         parser::{format_command, parse_command},
     },
+    test::{runner::run_hammer_test, test_config::TestConfig},
 };
+
+pub mod runner;
+pub mod test_config;
+pub mod test_full_rate;
 
 pub fn run(args: crate::cli::TestOpts) -> Result<()> {
     if args.debug {
@@ -23,11 +29,11 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
 
     port_default_config(&mut *port)?;
 
-    let my_auto_id = Uuid::new_v4().to_string();
-    eprintln!("[test] id={} awaiting slave", my_auto_id);
+    let my_test_id = Uuid::new_v4().to_string();
+    eprintln!("[test] id={} awaiting slave", my_test_id);
     let _slave_id = wait_for_test_slave_sync(
         &mut *port,
-        &my_auto_id,
+        &my_test_id,
         args.hello_ms,
         args.hello_backoff_max_ms,
     )
@@ -35,9 +41,22 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
 
     let mut port_config = args.to_port_config()?;
     port_config.baud = 57_600; // force 57600 for test
-    send_config_set(&mut *port, &my_auto_id, &port_config)?;
+    send_config_set(&mut *port, &my_test_id, &port_config)?;
 
-    let terminate = CtrlCommand::Terminate { id: my_auto_id };
+    run_hammer_test(
+        &mut *port,
+        &my_test_id,
+        TestConfig {
+            name: TestName::MaxRate,
+            payload: 32,
+            frames: Some(1_000),
+            duration_ms: None,
+            dir: Direction::Tx,
+        },
+        true,
+    )?;
+
+    let terminate = CtrlCommand::Terminate { id: my_test_id };
     write_line(&mut *port, &format_command(&terminate))?;
     wait_for_command(
         &mut *port,
@@ -120,5 +139,6 @@ fn send_config_set(
         port_config.bits,
         port_config.flow,
     )?;
+    sleep(Duration::from_millis(100)); // let settle
     Ok(())
 }

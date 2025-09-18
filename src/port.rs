@@ -1,8 +1,9 @@
 use anyhow::{Result, bail};
-use serialport::{DataBits, SerialPort};
+use serialport::{ClearBuffer, DataBits, SerialPort, StopBits};
 use std::{
     io,
     sync::atomic::AtomicBool,
+    thread::sleep,
     time::{Duration, Instant},
 };
 
@@ -49,6 +50,10 @@ pub fn retune_for_config(
     flow: FlowControl,
 ) -> Result<()> {
     use serialport::{DataBits, FlowControl as SpFlow, Parity as SpParity, StopBits};
+    port.set_timeout(Duration::from_millis(100))?;
+    port.flush()?;
+    port.clear(serialport::ClearBuffer::All)?;
+
     port.set_baud_rate(baud)?;
     port.set_data_bits(match bits {
         7 => DataBits::Seven,
@@ -65,6 +70,8 @@ pub fn retune_for_config(
         FlowControl::None => SpFlow::None,
         FlowControl::RtsCts => SpFlow::Hardware,
     })?;
+    port.clear(serialport::ClearBuffer::All)?;
+    sleep(Duration::from_millis(10)); // let settle
     debug_eprintln!(
         "[port] reconfigured to {} {}-{}-{}-{}",
         baud,

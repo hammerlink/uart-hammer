@@ -99,6 +99,7 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
                 push_pair!("duration_ms", t);
             }
             push_pair!("payload", payload);
+            push_pair!("dir", direction_to_str(*dir));
         }
         TestBeginAck {
             id,

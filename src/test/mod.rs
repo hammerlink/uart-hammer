@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 
 use crate::{
-    port::{open_control, port_default_config, wait_for_command, write_line, DEBUG},
+    port::{DEBUG, open_control, port_default_config, wait_for_command, write_line},
     proto::{
         command::CtrlCommand,
         parser::{format_command, parse_command},
@@ -52,9 +52,9 @@ fn wait_for_test_slave_sync(
             wait_for_command(port, Some(Duration::from_millis(backoff)), |line: &str| {
                 let result = parse_command(line);
                 if let Ok(ref cmd) = result
-                    && let CtrlCommand::Hello { id } = cmd
+                    && let CtrlCommand::Ack { id } = cmd
                 {
-                    eprintln!("[test] got HELLO from slave id={}", id);
+                    eprintln!("[test] got ACK from slave id={}", id);
                     return Some(id.clone());
                 }
                 None

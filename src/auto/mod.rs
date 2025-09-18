@@ -155,7 +155,7 @@ fn wait_for_master_sync(port: &mut dyn serialport::SerialPort, my_id: &str) -> R
     // Ensure port is in default config
     port_default_config(port)?;
 
-    wait_for_command(port, None, |line: &str| {
+    let master_id = wait_for_command(port, None, |line: &str| {
         if let Ok(cmd) = parse_command(line)
             && let CtrlCommand::Hello { id } = cmd
         {
@@ -167,7 +167,14 @@ fn wait_for_master_sync(port: &mut dyn serialport::SerialPort, my_id: &str) -> R
             return Some(id);
         }
         None
-    })
+    })?;
+
+    
+    let ack = CtrlCommand::Ack {
+        id: my_id.to_string(),
+    };
+    write_line(port, &format_command(&ack))?;
+    Ok(master_id)
 }
 
 fn wait_for_test_done(port: &mut dyn serialport::SerialPort, timeout: Duration) -> Result<()> {

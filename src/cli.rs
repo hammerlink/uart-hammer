@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail};
 use clap::{Args, Parser, Subcommand};
 use std::time::Duration;
 
-use crate::proto::command::{CtrlCommand, FlowControl, Parity};
+use crate::proto::command::{FlowControl, Parity};
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "uart-lab", about = "UART tester (tx/rx) with framing & stats")]

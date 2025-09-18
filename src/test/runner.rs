@@ -87,7 +87,7 @@ pub fn run_hammer_test(
     }
 
     // TODO handle reporting
-    let res = build_test_result(&my_id, None, "not implemented yet");
+    let res = build_test_result(my_id, None, "not implemented yet");
     write_line(&mut *port, &format_command(&res))?;
     // Optional: you can still log this locally
     log_test_result(&res);

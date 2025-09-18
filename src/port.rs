@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use serialport::{ClearBuffer, DataBits, SerialPort, StopBits};
+use serialport::{DataBits, SerialPort};
 use std::{
     io,
     sync::atomic::AtomicBool,

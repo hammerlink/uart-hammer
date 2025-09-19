@@ -122,14 +122,25 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             push_pair!("dir", direction_to_str(*dir));
         }
 
-        TestDone { id, result } => {
+        TestDone { id } => {
             out.push_str("TEST DONE");
             push_pair!("id", id);
-            push_pair!("result", resultflag_to_str(*result));
         }
-        TestDoneAck { id } => {
+        TestDoneAck {
+            id,
+            ok,
+            total,
+            bad,
+            lost,
+            duration_micros,
+        } => {
             out.push_str("TEST DONE ACK");
             push_pair!("id", id);
+            push_pair!("ok", ok);
+            push_pair!("bad", bad);
+            push_pair!("lost", lost);
+            push_pair!("total", total);
+            push_pair!("dur_mcrs", duration_micros);
         }
 
         TestResult {
@@ -267,10 +278,14 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
 
         "TEST DONE" => Ok(TestDone {
             id: req_s(&map, "id")?.to_string(),
-            result: req_resultflag(&map, "result")?,
         }),
         "TEST DONE ACK" => Ok(TestDoneAck {
             id: req_s(&map, "id")?.to_string(),
+            ok: req_u64(&map, "ok")?,
+            bad: req_u64(&map, "bad")?,
+            lost: req_u64(&map, "lost")?,
+            total: req_u64(&map, "total")?,
+            duration_micros: req_u64(&map, "dur_mcrs")?,
         }),
 
         "TEST RESULT" => Ok(TestResult {
@@ -616,16 +631,12 @@ mod tests {
 
     #[test]
     fn roundtrip_test_done() {
-        let cmd = CtrlCommand::TestDone {
-            id: "test3".into(),
-            result: TestResultFlag::Pass,
-        };
+        let cmd = CtrlCommand::TestDone { id: "test3".into() };
         let line = format_command(&cmd);
         let parsed = parse_command(&line).unwrap();
         match parsed {
-            CtrlCommand::TestDone { id, result } => {
+            CtrlCommand::TestDone { id } => {
                 assert_eq!(id, "test3");
-                assert!(matches!(result, TestResultFlag::Pass));
             }
             _ => panic!("wrong variant"),
         }

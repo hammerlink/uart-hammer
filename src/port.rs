@@ -2,18 +2,34 @@ use anyhow::{Result, bail};
 use serialport::{DataBits, SerialPort};
 use std::{
     io,
+    sync::RwLock,
     sync::atomic::AtomicBool,
     thread::sleep,
     time::{Duration, Instant},
 };
 
 use crate::{
-    cli::SerialOpts,
+    cli::{PortConfig, SerialOpts},
     proto::command::{FlowControl, Parity},
 };
 
-// Global flag
+const DEFAULT_CONFIG: PortConfig = PortConfig {
+    baud: 115_200,
+    parity: Parity::None,
+    bits: 8,
+    flow: FlowControl::None,
+    stop_bits: 1,
+};
+
+// Globals
 pub static PORT_DEBUG: AtomicBool = AtomicBool::new(false);
+pub static PORT_CONFIG: RwLock<PortConfig> = RwLock::new(PortConfig {
+    baud: DEFAULT_CONFIG.baud,
+    parity: DEFAULT_CONFIG.parity,
+    bits: DEFAULT_CONFIG.bits,
+    flow: DEFAULT_CONFIG.flow,
+    stop_bits: DEFAULT_CONFIG.stop_bits,
+});
 
 // Macro definition
 #[macro_export]
@@ -50,10 +66,13 @@ pub fn retune_for_config(
     flow: FlowControl,
 ) -> Result<()> {
     use serialport::{DataBits, FlowControl as SpFlow, Parity as SpParity, StopBits};
+
+    // Reset port to known state
     port.set_timeout(Duration::from_millis(100))?;
     port.flush()?;
     port.clear(serialport::ClearBuffer::All)?;
 
+    // Apply new settings
     port.set_baud_rate(baud)?;
     port.set_data_bits(match bits {
         7 => DataBits::Seven,
@@ -70,8 +89,23 @@ pub fn retune_for_config(
         FlowControl::None => SpFlow::None,
         FlowControl::RtsCts => SpFlow::Hardware,
     })?;
+
+    // Flush and wait a bit to let things settle
     port.clear(serialport::ClearBuffer::All)?;
     sleep(Duration::from_millis(10)); // let settle
+
+    // Update global config
+    let mut cfg = PORT_CONFIG.write().unwrap();
+    cfg.baud = baud;
+    cfg.parity = parity;
+    cfg.bits = match bits {
+        7 => 7,
+        8 => 8,
+        other => bail!("unsupported data bits: {}", other),
+    };
+    cfg.flow = flow;
+    drop(cfg); // release lock
+
     debug_eprintln!(
         "[port] reconfigured to {} {}-{}-{}-{}",
         baud,
@@ -91,7 +125,20 @@ pub fn retune_for_config(
 }
 
 pub fn port_default_config(port: &mut dyn serialport::SerialPort) -> Result<()> {
-    retune_for_config(port, 115_200, Parity::None, 8, FlowControl::None)
+    retune_for_config(
+        port,
+        DEFAULT_CONFIG.baud,
+        DEFAULT_CONFIG.parity,
+        DEFAULT_CONFIG.bits,
+        DEFAULT_CONFIG.flow,
+    )
+}
+
+pub fn get_port_config() -> PortConfig {
+    let cfg = PORT_CONFIG.read().unwrap();
+    let result = cfg.clone();
+    drop(cfg);
+    result
 }
 
 /// Open the *control channel* (always 115200, 8N1, no flow)

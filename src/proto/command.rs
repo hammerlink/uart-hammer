@@ -1,8 +1,12 @@
 #[derive(Debug, Clone)]
 pub enum CtrlCommand {
     // ---- Discovery ----
-    Hello { id: String },
-    Ack { id: String },
+    Hello {
+        id: String,
+    },
+    Ack {
+        id: String,
+    },
 
     // ---- Config ----
     ConfigSet {
@@ -24,7 +28,7 @@ pub enum CtrlCommand {
     TestBegin {
         id: String,
         name: TestName,
-        frames: Option<u64>,      // either frames or duration_ms must be Some
+        frames: Option<u64>, // either frames or duration_ms must be Some
         duration_ms: Option<u64>,
         payload: usize,
         dir: Direction,
@@ -40,10 +44,14 @@ pub enum CtrlCommand {
 
     TestDone {
         id: String,
-        result: TestResultFlag,   // pass/fail reported
     },
     TestDoneAck {
         id: String,
+        ok: u64,
+        bad: u64,
+        lost: u64,
+        total: u64,
+        duration_micros: u64,
     },
 
     TestResult {
@@ -54,14 +62,18 @@ pub enum CtrlCommand {
         bad_crc: u64,
         seq_gaps: u64,
         overruns: u64,
-        errors: u32,   // bitmask
+        errors: u32, // bitmask
         rate_bps: u64,
         reason: Option<String>,
     },
 
     // ---- Terminate ----
-    Terminate { id: String },
-    TerminateAck { id: String },
+    Terminate {
+        id: String,
+    },
+    TerminateAck {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]

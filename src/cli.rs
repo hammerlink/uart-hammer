@@ -160,11 +160,28 @@ impl Pacing {
 }
 
 /// Cleaned-up struct for a parsed configuration
+#[derive(Debug, Clone, Copy)]
 pub struct PortConfig {
     pub baud: u32,
     pub parity: Parity,
     pub bits: u8,
     pub flow: FlowControl,
+    pub stop_bits: u8, // currently always 1
+}
+
+impl PortConfig {
+    pub fn bits_per_byte(&self) -> u32 {
+        let start_bits = 1;
+
+        let parity_bits = match self.parity {
+            Parity::None => 0,
+            _ => 1,
+        };
+
+        let stop_bits = self.stop_bits as u32; // adjust if you later add a field for stop bits
+
+        start_bits + self.bits as u32 + parity_bits + stop_bits
+    }
 }
 
 impl TestOpts {
@@ -191,6 +208,7 @@ impl TestOpts {
             parity,
             bits,
             flow,
+            stop_bits: 1,
         })
     }
 }

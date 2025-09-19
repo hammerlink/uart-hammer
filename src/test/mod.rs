@@ -18,7 +18,7 @@ use crate::{
 
 pub mod runner;
 pub mod test_config;
-pub mod test_full_rate;
+pub mod test_max_rate;
 
 pub fn run(args: crate::cli::TestOpts) -> Result<()> {
     if args.debug {

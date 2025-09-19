@@ -17,6 +17,7 @@ pub fn run(opts: RxOpts) -> Result<()> {
 
     eprintln!("Starting receive loop");
 
+    let start = std::time::Instant::now();
     loop {
         line.clear();
 
@@ -56,6 +57,7 @@ pub fn run(opts: RxOpts) -> Result<()> {
                 }
             }
         }
+        stats.duration_micros = start.elapsed().as_micros() as u64;
 
         stats.maybe_print(opts.stats);
     }

@@ -3,13 +3,17 @@ use std::time::Duration;
 use anyhow::Result;
 
 use crate::{
-    auto::dataplane,
+    auto::dataplane::{self, TestOutcome},
     port::{wait_for_command, write_line},
     proto::{
         command::{CtrlCommand, Direction, TestResultFlag},
         parser::{format_command, parse_command},
     },
-    test::test_config::TestConfig,
+    stats::Stats,
+    test::{
+        test_config::TestConfig,
+        test_max_rate::{run_max_rate_rx, run_max_rate_tx},
+    },
 };
 
 pub fn run_hammer_test(
@@ -55,9 +59,18 @@ pub fn run_hammer_test(
         write_line(port, &format_command(&ack_cmd))?;
     }
 
-    // Test is done, now wait for TestDone or send it
+    // TODO handle multiple test types
+    let stats = match conf.dir {
+        Direction::Tx => run_max_rate_tx(port, conf.clone())?,
+        Direction::Rx => run_max_rate_rx(port, conf.clone())?,
+        Direction::Both => Stats::new(8),
+    };
+
     let is_ack_mode = is_test_done_ack_mode(conf.dir, true);
-    if is_ack_mode {
+    let mut other_stats: Option<Stats> = None;
+
+    // Send Done and Ack with stats sharing
+    if !is_master {
         wait_for_command(port, Some(Duration::from_millis(10_000)), |line: &str| {
             if let Ok(cmd) = parse_command(line)
                 && let CtrlCommand::TestDone { .. } = cmd
@@ -68,29 +81,45 @@ pub fn run_hammer_test(
         })?;
         let ack = CtrlCommand::TestDoneAck {
             id: my_id.to_string(),
+            ok: stats.ok,
+            bad: stats.bad,
+            lost: stats.lost,
+            total: stats.total,
+            duration_micros: stats.duration_micros,
         };
         write_line(&mut *port, &format_command(&ack))?;
     } else {
-        let test_done = CtrlCommand::TestDone {
-            id: my_id.to_string(),
-            result: TestResultFlag::Fail, // placeholder
-        };
-        write_line(&mut *port, &format_command(&test_done))?;
-        wait_for_command(port, Some(Duration::from_millis(10_000)), |line: &str| {
-            if let Ok(cmd) = parse_command(line)
-                && let CtrlCommand::TestDoneAck { .. } = cmd
-            {
-                return Some(());
-            }
+        let test_done_ack = wait_for_test_done_ack_sync(&mut *port, my_id, 200, 1_000)?;
+        other_stats = if let CtrlCommand::TestDoneAck {
+            ok,
+            bad,
+            lost,
+            total,
+            duration_micros,
+            ..
+        } = test_done_ack
+        {
+            Some(Stats {
+                ok,
+                bad,
+                lost,
+                total,
+                duration_micros,
+                ..Stats::new(8)
+            })
+        } else {
             None
-        })?;
+        };
     }
-
-    // TODO handle reporting
-    let res = build_test_result(my_id, None, "not implemented yet");
-    write_line(&mut *port, &format_command(&res))?;
-    // Optional: you can still log this locally
-    log_test_result(&res);
+    if is_master && other_stats.is_some() {
+        let outcome: TestOutcome = if is_ack_mode {
+            // is_ack_mode = is rx
+            TestOutcome::from_test_stats(other_stats.unwrap(), stats)
+        } else {
+            TestOutcome::from_test_stats(stats, other_stats.unwrap())
+        };
+        outcome.log();
+    }
 
     Ok(())
 }
@@ -140,31 +169,36 @@ fn build_test_result(
     }
 }
 
-fn log_test_result(res: &CtrlCommand) {
-    if let CtrlCommand::TestResult {
-        result,
-        rx_frames,
-        rx_bytes,
-        bad_crc,
-        seq_gaps,
-        overruns,
-        errors,
-        rate_bps,
-        reason,
-        ..
-    } = res
-    {
-        eprintln!(
-            "[auto] result={:?} frames={} bytes={} bad_crc={} gaps={} overruns={} errors=0x{:X} rate_bps={} reason={}",
-            result,
-            rx_frames,
-            rx_bytes,
-            bad_crc,
-            seq_gaps,
-            overruns,
-            errors,
-            rate_bps,
-            reason.as_deref().unwrap_or("")
-        );
+fn wait_for_test_done_ack_sync(
+    port: &mut dyn serialport::SerialPort,
+    my_id: &str,
+    initial_ms: u64,
+    max_ms: u64,
+) -> Result<CtrlCommand> {
+    let mut backoff = initial_ms.max(200);
+
+    let cmd = CtrlCommand::TestDone {
+        id: my_id.to_string(),
+    };
+    let line = format_command(&cmd);
+    loop {
+        write_line(port, &line)?;
+
+        let test_done_ack =
+            wait_for_command(port, Some(Duration::from_millis(backoff)), |line: &str| {
+                let result = parse_command(line);
+                if let Ok(ref cmd) = result
+                    && let CtrlCommand::TestDoneAck { .. } = cmd
+                {
+                    return Some(cmd.clone());
+                }
+                None
+            })
+            .ok();
+        if test_done_ack.is_some() {
+            return Ok(test_done_ack.unwrap());
+        }
+
+        backoff = (backoff.saturating_mul(2)).min(max_ms.max(initial_ms));
     }
 }

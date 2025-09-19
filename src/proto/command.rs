@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Debug, Clone)]
 pub enum CtrlCommand {
     // ---- Discovery ----
@@ -81,6 +83,15 @@ pub enum CtrlCommand {
 pub enum TestName {
     MaxRate,
     FifoResidue,
+}
+
+impl fmt::Display for TestName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TestName::MaxRate => write!(f, "max-rate"),
+            TestName::FifoResidue => write!(f, "fifo-residue"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -88,7 +88,7 @@ pub fn run(args: AutoOpts) -> Result<()> {
                     continue; // ignore
                 }
 
-                run_hammer_test(
+                match run_hammer_test(
                     &mut *port,
                     &my_auto_id,
                     TestConfig {
@@ -99,7 +99,12 @@ pub fn run(args: AutoOpts) -> Result<()> {
                         dir,
                     },
                     false,
-                )?;
+                ) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("[auto] error during test: {}", e);
+                    }
+                };
             }
 
             // Peer RESULT (master’s) --------------------------------------

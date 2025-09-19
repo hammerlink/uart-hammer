@@ -10,7 +10,7 @@ use crate::{
         write_line,
     },
     proto::{
-        command::{CtrlCommand, TestName},
+        command::CtrlCommand,
         parser::{format_command, parse_command},
     },
     test::{runner::run_hammer_test, test_config::TestConfig},
@@ -52,9 +52,12 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
         let test_names = args.get_test_names();
         for test_name in test_names {
             for dir in args.get_dirs() {
-                execute_test(
+                eprintln!(
+                    "[test] running test '{}' dir={:?} at {:?} {}bps",
+                    test_name, dir, port_config, port_config.baud
+                );
+                match run_hammer_test(
                     &mut *port,
-                    test_name,
                     &my_test_id,
                     TestConfig {
                         name: test_name,
@@ -63,7 +66,15 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
                         payload: args.payload,
                         dir,
                     },
-                )?;
+                    true,
+                )
+                .with_context(|| "running max-rate test")
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("[test] max-rate test failed: {e}");
+                    }
+                };
             }
         }
     }
@@ -83,26 +94,6 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
             None
         },
     )?;
-
-    Ok(())
-}
-
-fn execute_test(
-    port: &mut dyn serialport::SerialPort,
-    test_name: TestName,
-    my_test_id: &str,
-    test_config: TestConfig,
-) -> Result<()> {
-    match test_name {
-        TestName::MaxRate => {
-            eprintln!("[test] running max-rate test");
-            run_hammer_test(&mut *port, my_test_id, test_config, true)
-                .with_context(|| "running max-rate test")?;
-        }
-        TestName::FifoResidue => {
-            // Implement fifo-residue test here
-        }
-    }
 
     Ok(())
 }

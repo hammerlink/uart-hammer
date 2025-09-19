@@ -84,7 +84,7 @@ pub struct TestOpts {
     pub tests: String,
     #[arg(long, default_value = "115200,57600,38400,19200,9600")]
     pub bauds: String,
-    #[arg(long, default_value = "none,even,odd")]
+    #[arg(long, default_value = "none")] // none,even,odd
     pub parity: String,
     #[arg(long, default_value = "8")]
     pub bits: String,
@@ -281,8 +281,12 @@ impl TestOpts {
     }
 
     pub fn get_baud_rates(&self) -> Vec<u32> {
+        if self.bauds.trim() == "*" {
+            return vec![9_600, 19_200, 38_400, 57_600, 115_200, 230_400, 460_800, 921_600, 1_000_000, 1_500_000, 3_000_000];
+        }
         let bauds: Vec<u32> = self
             .bauds
+            .replace("_", "")
             .split(',')
             .filter_map(|s| s.trim().parse().ok())
             .collect();

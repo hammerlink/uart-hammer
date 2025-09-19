@@ -1,8 +1,11 @@
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
 use std::time::Duration;
 
-use crate::proto::command::{FlowControl, Parity};
+use crate::{
+    port::DEFAULT_CONFIG,
+    proto::command::{Direction, FlowControl, Parity, TestName},
+};
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "uart-lab", about = "UART tester (tx/rx) with framing & stats")]
@@ -79,19 +82,19 @@ pub struct TestOpts {
     // test selection / params
     #[arg(long, default_value = "max-rate,fifo-residue")]
     pub tests: String,
-    #[arg(long, default_value_t = 115_200)]
-    pub bauds: u32, // "defaults" or csv
+    #[arg(long, default_value = "115200,57600,38400,19200,9600")]
+    pub bauds: String,
     #[arg(long, default_value = "none,even,odd")]
     pub parity: String,
-    #[arg(long, default_value = "8,7")]
+    #[arg(long, default_value = "8")]
     pub bits: String,
-    #[arg(long, default_value = "tx,rx,both")]
+    #[arg(long, default_value = "tx,rx")] // list of tx,rx,both
     pub dir: String,
-    #[arg(long, default_value = "none,rtscts")]
+    #[arg(long, default_value = "none")] // none,rtscts
     pub flow: String,
-    #[arg(long, default_value_t = 128)]
+    #[arg(long, default_value_t = 32)]
     pub payload: usize,
-    #[arg(long, default_value_t = 10_000)]
+    #[arg(long, default_value_t = 200)]
     pub frames: usize,
     #[arg(long)]
     pub duration_ms: Option<u64>,
@@ -185,30 +188,122 @@ impl PortConfig {
 }
 
 impl TestOpts {
-    pub fn to_port_config(&self) -> anyhow::Result<PortConfig> {
-        let baud = self.bauds;
+    pub fn get_port_configs(&self) -> Vec<PortConfig> {
+        let bauds = self.get_baud_rates();
+        let parities = self.get_parities();
+        let bits_list = self.get_bits();
+        let flow_controls = self.get_flow_controls();
 
-        let parity = match self.parity.split(',').next().unwrap_or("none") {
-            "none" => Parity::None,
-            "even" => Parity::Even,
-            "odd" => Parity::Odd,
-            other => bail!("unsupported parity: {}", other),
-        };
+        let mut configs = Vec::new();
+        for &baud in &bauds {
+            for &parity in &parities {
+                for &bits in &bits_list {
+                    for &flow in &flow_controls {
+                        configs.push(PortConfig {
+                            baud,
+                            parity,
+                            bits,
+                            flow,
+                            stop_bits: 1,
+                        });
+                    }
+                }
+            }
+        }
 
-        let bits: u8 = self.bits.split(',').next().unwrap_or("8").parse()?;
+        if configs.is_empty() {
+            configs.push(DEFAULT_CONFIG);
+        }
 
-        let flow = match self.flow.split(',').next().unwrap_or("none") {
-            "none" => FlowControl::None,
-            "rtscts" => FlowControl::RtsCts,
-            other => bail!("unsupported flow control: {}", other),
-        };
+        configs
+    }
 
-        Ok(PortConfig {
-            baud,
-            parity,
-            bits,
-            flow,
-            stop_bits: 1,
-        })
+    pub fn get_bits(&self) -> Vec<u8> {
+        let bits: Vec<u8> = self
+            .bits
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if bits.is_empty() { vec![8] } else { bits }
+    }
+
+    pub fn get_flow_controls(&self) -> Vec<FlowControl> {
+        let flow_controls: Vec<FlowControl> = self
+            .flow
+            .split(',')
+            .filter_map(|s| match s.trim() {
+                "none" => Some(FlowControl::None),
+                "rtscts" => Some(FlowControl::RtsCts),
+                _ => None,
+            })
+            .collect();
+        if flow_controls.is_empty() {
+            vec![FlowControl::None]
+        } else {
+            flow_controls
+        }
+    }
+
+    pub fn get_dirs(&self) -> Vec<Direction> {
+        let dirs: Vec<Direction> = self
+            .dir
+            .split(',')
+            .filter_map(|s| match s.trim() {
+                "tx" => Some(Direction::Tx),
+                "rx" => Some(Direction::Rx),
+                "both" => Some(Direction::Both),
+                _ => None,
+            })
+            .collect();
+        if dirs.is_empty() {
+            vec![Direction::Tx]
+        } else {
+            dirs
+        }
+    }
+
+    pub fn get_parities(&self) -> Vec<Parity> {
+        let parities: Vec<Parity> = self
+            .parity
+            .split(',')
+            .filter_map(|s| match s.trim() {
+                "none" => Some(Parity::None),
+                "even" => Some(Parity::Even),
+                "odd" => Some(Parity::Odd),
+                _ => None,
+            })
+            .collect();
+        if parities.is_empty() {
+            vec![Parity::None]
+        } else {
+            parities
+        }
+    }
+
+    pub fn get_baud_rates(&self) -> Vec<u32> {
+        let bauds: Vec<u32> = self
+            .bauds
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if bauds.is_empty() {
+            vec![115_200]
+        } else {
+            bauds
+        }
+    }
+
+    pub fn get_test_names(&self) -> Vec<TestName> {
+        if self.tests.trim() == "*" {
+            return vec![TestName::MaxRate, TestName::FifoResidue];
+        }
+        self.tests
+            .split(',')
+            .filter_map(|s| match s.trim() {
+                "max-rate" => Some(TestName::MaxRate),
+                "fifo-residue" => Some(TestName::FifoResidue),
+                _ => None,
+            })
+            .collect()
     }
 }

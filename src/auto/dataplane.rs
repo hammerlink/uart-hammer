@@ -64,8 +64,11 @@ impl TestOutcome {
 
     pub fn log(&self) {
         eprintln!(
-            "[auto] result={:?} frames={} bytes={} bad_crc={} gaps={} overruns={} errors=0x{:X} rate_bps={} reason={}",
-            self.pass,
+            "[auto] {} frames={} bytes={} bad_crc={} gaps={} overruns={} errors=0x{:X} rate_bps={} reason={}",
+            match self.pass {
+                true => "PASS",
+                false => "FAIL",
+            },
             self.rx_frames,
             self.rx_bytes,
             self.bad_crc,

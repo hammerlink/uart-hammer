@@ -10,7 +10,7 @@ use crate::{
         write_line,
     },
     proto::{
-        command::{CtrlCommand, Direction, TestName},
+        command::{CtrlCommand, TestName},
         parser::{format_command, parse_command},
     },
     test::{runner::run_hammer_test, test_config::TestConfig},
@@ -39,22 +39,34 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
     )
     .with_context(|| "waiting for test slave sync")?;
 
-    let mut port_config = args.to_port_config()?;
-    port_config.baud = 57_600; // force 57600 for test
-    send_config_set(&mut *port, &my_test_id, &port_config)?;
+    let port_configs = args.get_port_configs();
 
-    run_hammer_test(
-        &mut *port,
-        &my_test_id,
-        TestConfig {
-            name: TestName::MaxRate,
-            payload: 16,
-            frames: Some(150),
-            duration_ms: Some(Duration::from_secs(20).as_millis() as u64),
-            dir: Direction::Tx,
-        },
-        true,
-    )?;
+    let frames = match args.frames {
+        0 => None,
+        n => Some(n as u64),
+    };
+
+    for port_config in &port_configs {
+        send_config_set(&mut *port, &my_test_id, port_config)?;
+
+        let test_names = args.get_test_names();
+        for test_name in test_names {
+            for dir in args.get_dirs() {
+                execute_test(
+                    &mut *port,
+                    test_name,
+                    &my_test_id,
+                    TestConfig {
+                        name: test_name,
+                        frames,
+                        duration_ms: args.duration_ms,
+                        payload: args.payload,
+                        dir,
+                    },
+                )?;
+            }
+        }
+    }
 
     let terminate = CtrlCommand::Terminate { id: my_test_id };
     write_line(&mut *port, &format_command(&terminate))?;
@@ -71,6 +83,26 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
             None
         },
     )?;
+
+    Ok(())
+}
+
+fn execute_test(
+    port: &mut dyn serialport::SerialPort,
+    test_name: TestName,
+    my_test_id: &str,
+    test_config: TestConfig,
+) -> Result<()> {
+    match test_name {
+        TestName::MaxRate => {
+            eprintln!("[test] running max-rate test");
+            run_hammer_test(&mut *port, my_test_id, test_config, true)
+                .with_context(|| "running max-rate test")?;
+        }
+        TestName::FifoResidue => {
+            // Implement fifo-residue test here
+        }
+    }
 
     Ok(())
 }

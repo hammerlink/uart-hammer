@@ -13,7 +13,7 @@ use crate::{
     proto::command::{FlowControl, Parity},
 };
 
-const DEFAULT_CONFIG: PortConfig = PortConfig {
+pub const DEFAULT_CONFIG: PortConfig = PortConfig {
     baud: 115_200,
     parity: Parity::None,
     bits: 8,
@@ -106,7 +106,7 @@ pub fn retune_for_config(
     cfg.flow = flow;
     drop(cfg); // release lock
 
-    debug_eprintln!(
+    eprintln!(
         "[port] reconfigured to {} {}-{}-{}-{}",
         baud,
         bits,
@@ -136,7 +136,7 @@ pub fn port_default_config(port: &mut dyn serialport::SerialPort) -> Result<()> 
 
 pub fn get_port_config() -> PortConfig {
     let cfg = PORT_CONFIG.read().unwrap();
-    let result = cfg.clone();
+    let result = *cfg;
     drop(cfg);
     result
 }

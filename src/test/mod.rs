@@ -48,9 +48,9 @@ pub fn run(args: crate::cli::TestOpts) -> Result<()> {
         &my_test_id,
         TestConfig {
             name: TestName::MaxRate,
-            payload: 32,
-            frames: Some(1_000),
-            duration_ms: None,
+            payload: 16,
+            frames: Some(150),
+            duration_ms: Some(Duration::from_secs(20).as_millis() as u64),
             dir: Direction::Tx,
         },
         true,

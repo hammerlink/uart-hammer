@@ -30,36 +30,6 @@ pub struct TestOutcome {
 }
 
 impl TestOutcome {
-    /// Convenience: mark a clean pass.
-    pub fn pass(rx_frames: u64, rx_bytes: u64, rate_bps: u64) -> Self {
-        Self {
-            pass: true,
-            rx_frames,
-            rx_bytes,
-            bad_crc: 0,
-            seq_gaps: 0,
-            overruns: 0,
-            errors: 0,
-            rate_bps,
-            reason: None,
-        }
-    }
-
-    /// Convenience: mark a fail with a reason.
-    pub fn fail(reason: impl Into<String>) -> Self {
-        Self {
-            pass: false,
-            rx_frames: 0,
-            rx_bytes: 0,
-            bad_crc: 0,
-            seq_gaps: 0,
-            overruns: 0,
-            errors: 0,
-            rate_bps: 0,
-            reason: Some(reason.into()),
-        }
-    }
-
     pub fn from_test_stats(tx_stats: Stats, rx_stats: Stats) -> Self {
         let pass = rx_stats.ok > 0 && rx_stats.bad == 0 && rx_stats.lost == 0;
         let reason = if pass {

@@ -52,6 +52,7 @@ pub enum CtrlCommand {
         lost: u64,
         total: u64,
         duration_micros: u64,
+        bytes: u64, // Bytes sent / received TODO
     },
 
     TestResult {

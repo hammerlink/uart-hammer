@@ -3,10 +3,10 @@ use std::time::Duration;
 use anyhow::Result;
 
 use crate::{
-    auto::dataplane::{self, TestOutcome},
+    auto::dataplane::{TestOutcome},
     port::{wait_for_command, write_line},
     proto::{
-        command::{CtrlCommand, Direction, TestResultFlag},
+        command::{CtrlCommand, Direction},
         parser::{format_command, parse_command},
     },
     stats::Stats,
@@ -86,6 +86,7 @@ pub fn run_hammer_test(
             lost: stats.lost,
             total: stats.total,
             duration_micros: stats.duration_micros,
+            bytes: stats.bytes,
         };
         write_line(&mut *port, &format_command(&ack))?;
     } else {
@@ -96,6 +97,7 @@ pub fn run_hammer_test(
             lost,
             total,
             duration_micros,
+            bytes,
             ..
         } = test_done_ack
         {
@@ -105,18 +107,19 @@ pub fn run_hammer_test(
                 lost,
                 total,
                 duration_micros,
-                ..Stats::new(8)
+                bytes,
+                bpb: stats.bpb,
             })
         } else {
             None
         };
     }
-    if is_master && other_stats.is_some() {
+    if is_master && let Some(other_stats) = other_stats {
         let outcome: TestOutcome = if is_ack_mode {
             // is_ack_mode = is rx
-            TestOutcome::from_test_stats(other_stats.unwrap(), stats)
+            TestOutcome::from_test_stats(other_stats, stats)
         } else {
-            TestOutcome::from_test_stats(stats, other_stats.unwrap())
+            TestOutcome::from_test_stats(stats, other_stats)
         };
         outcome.log();
     }
@@ -129,43 +132,6 @@ fn is_test_done_ack_mode(dir: Direction, is_master: bool) -> bool {
         Direction::Tx => false,
         Direction::Both if is_master => false,
         _ => true,
-    }
-}
-
-fn build_test_result(
-    id: &str,
-    outcome: Option<&dataplane::TestOutcome>,
-    default_reason: &str,
-) -> CtrlCommand {
-    match outcome {
-        Some(outcome) => CtrlCommand::TestResult {
-            id: id.to_string(),
-            result: if outcome.pass {
-                TestResultFlag::Pass
-            } else {
-                TestResultFlag::Fail
-            },
-            rx_frames: outcome.rx_frames,
-            rx_bytes: outcome.rx_bytes,
-            bad_crc: outcome.bad_crc,
-            seq_gaps: outcome.seq_gaps,
-            overruns: outcome.overruns,
-            errors: outcome.errors,
-            rate_bps: outcome.rate_bps,
-            reason: outcome.reason.clone(),
-        },
-        None => CtrlCommand::TestResult {
-            id: id.to_string(),
-            result: TestResultFlag::Fail,
-            rx_frames: 0,
-            rx_bytes: 0,
-            bad_crc: 0,
-            seq_gaps: 0,
-            overruns: 0,
-            errors: 0,
-            rate_bps: 0,
-            reason: Some(default_reason.into()),
-        },
     }
 }
 
@@ -195,8 +161,8 @@ fn wait_for_test_done_ack_sync(
                 None
             })
             .ok();
-        if test_done_ack.is_some() {
-            return Ok(test_done_ack.unwrap());
+        if let Some(test_done_ack) = test_done_ack {
+            return Ok(test_done_ack);
         }
 
         backoff = (backoff.saturating_mul(2)).min(max_ms.max(initial_ms));

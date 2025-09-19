@@ -3,9 +3,6 @@ use anyhow::{Context, Result, bail};
 #[derive(Debug, Clone)]
 pub struct Frame {
     pub seq: u64,
-    pub len: usize,
-    pub pay_hex: String,
-    pub sum: u8,
 }
 
 pub fn hexsum(payload_hex: &str) -> Result<u8> {
@@ -50,12 +47,7 @@ pub fn parse_frame(line: &str) -> Result<Frame> {
     if calc != sumrx {
         bail!("checksum {}!={}", calc, sumrx);
     }
-    Ok(Frame {
-        seq,
-        len,
-        pay_hex: pay,
-        sum: sumrx,
-    })
+    Ok(Frame { seq })
 }
 
 pub fn build_frame(seq: u64, len: usize) -> String {
@@ -79,7 +71,5 @@ mod tests {
         let f = build_frame(42, 8);
         let p = parse_frame(&f).unwrap();
         assert_eq!(p.seq, 42);
-        assert_eq!(p.len, 8);
-        assert_eq!(hexsum(&p.pay_hex).unwrap(), p.sum);
     }
 }

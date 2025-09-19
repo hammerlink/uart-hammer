@@ -133,6 +133,7 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             bad,
             lost,
             duration_micros,
+            bytes,
         } => {
             out.push_str("TEST DONE ACK");
             push_pair!("id", id);
@@ -141,6 +142,7 @@ pub fn format_command(cmd: &CtrlCommand) -> String {
             push_pair!("lost", lost);
             push_pair!("total", total);
             push_pair!("dur_mcrs", duration_micros);
+            push_pair!("bytes", bytes);
         }
 
         TestResult {
@@ -286,6 +288,7 @@ pub fn parse_command(line: &str) -> Result<CtrlCommand, ParseError> {
             lost: req_u64(&map, "lost")?,
             total: req_u64(&map, "total")?,
             duration_micros: req_u64(&map, "dur_mcrs")?,
+            bytes: req_u64(&map, "bytes")?,
         }),
 
         "TEST RESULT" => Ok(TestResult {

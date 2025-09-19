@@ -10,6 +10,7 @@ use crate::{
 };
 
 const MAX_RATE: f64 = 0.999; // target 99.9% utilization
+const MAX_TEST_DURATION_MS: u64 = 20_000;
 
 pub fn run_max_rate_tx(
     port: &mut dyn serialport::SerialPort,
@@ -23,7 +24,7 @@ pub fn run_max_rate_tx(
     let port_config = get_port_config();
     let start = std::time::Instant::now();
     let mut stats = crate::stats::Stats::new(port_config.bits as u32);
-    let duration_ms = input_duration_ms.unwrap_or(5_000);
+    let duration_ms = input_duration_ms.unwrap_or(MAX_TEST_DURATION_MS);
     let bits_per_byte = port_config.bits_per_byte();
     let mut seq: u64 = 0;
     let pacing = Pacing::Auto { util: MAX_RATE };
@@ -39,7 +40,7 @@ pub fn run_max_rate_tx(
             break;
         }
         out.clear();
-        let line = build_frame(seq.into(), payload);
+        let line = build_frame(seq, payload);
         out.extend_from_slice(line.as_bytes());
         out.extend_from_slice(b"\r\n");
         port.write_all(&out)?;
@@ -71,7 +72,7 @@ pub fn run_max_rate_rx(
     let mut line = String::new();
 
     let mut stats = crate::stats::Stats::new(get_port_config().bits as u32);
-    let duration_ms = input_duration_ms.unwrap_or(5_000);
+    let duration_ms = input_duration_ms.unwrap_or(MAX_TEST_DURATION_MS);
     let mut expect: Option<u64> = None;
 
     loop {
@@ -95,11 +96,11 @@ pub fn run_max_rate_rx(
         match parse_frame(line.trim_end()) {
             Ok(f) => {
                 stats.inc_ok();
-                if let Some(e) = expect {
-                    if f.seq != e {
-                        let lost = if f.seq > e { f.seq - e } else { 1 };
-                        stats.add_lost(lost);
-                    }
+                if let Some(e) = expect
+                    && f.seq != e
+                {
+                    let lost = if f.seq > e { f.seq - e } else { 1 };
+                    stats.add_lost(lost);
                 }
                 expect = Some(f.seq.wrapping_add(1));
             }

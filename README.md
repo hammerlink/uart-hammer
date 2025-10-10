@@ -1,16 +1,13 @@
 # UART-Hammer 🔨
 
 A cross-platform Rust CLI to **stress-test and benchmark UART/serial links**.  
-Generate frames at line-rate, verify checksums and sequence numbers, and measure throughput, loss, and errors.
+This is still a work in progress, use at your own risk.
 
 ---
 
 ## Features
 
-- **TX mode** blast frames with configurable payload size and pacing (`max`, fixed gap, or auto-paced by baud).
-- **RX mode** receive and validate frames, track sequence gaps, checksum errors, and throughput.
-- **Cross-compile ready** runs on x86 hosts and RISC-V SoCs (or any Linux with `/dev/ttyS*`).
-- **Stats & logging** per-second stats with optional debug output for each bad/lost frame.
+- Verify all known baud rates
 
 ---
 
